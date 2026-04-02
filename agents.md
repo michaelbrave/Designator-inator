@@ -1,4 +1,4 @@
-# Agent Instructions for ForgeClaw
+# Agent Instructions for Designator-inator
 
 Read this file before touching any code. It tells you the rules, the method, and how to hand off to the next agent.
 
@@ -68,7 +68,7 @@ After finishing a feature or a major change, update `plan.md` as follows:
 
 1. Read `plan.md` — it tells you what is done, what is next, and any decisions already made
 2. Read `HTDP.md` — the method you must follow
-3. Read `forge_claw/lib/forge_claw/types.ex` — all the data types in one place
+3. Read `designator_inator/lib/designator_inator/types.ex` — all the data types in one place
 4. Read the module file(s) you are about to implement — understand the existing `@doc`, `@spec`, and `# Template:` comments before writing a single line
 5. Read the corresponding test file — the tests are the specification
 
@@ -78,6 +78,6 @@ Do not read the entire codebase. Read only what you need for the task at hand.
 
 ## Project overview
 
-ForgeClaw is a local-first AI agent orchestration system on Elixir/BEAM. Each agent is a "Pod" — a directory package with `manifest.yaml`, `soul.md`, `config.yaml`, and a `workspace/`. Every pod is simultaneously an MCP server and an MCP client. See `plan.md` for the full architecture.
+Designator-inator is a local-first AI agent orchestration system on Elixir/BEAM. Each agent is a "Pod" — a directory package with `manifest.yaml`, `soul.md`, `config.yaml`, and a `workspace/`. Every pod is simultaneously an MCP server and an MCP client. See `plan.md` for the full architecture.
 
-The project is in `forge_claw/`. Example pods are in `examples/`. Planning docs are at the repo root.
+The project is in `designator_inator/`. Example pods are in `examples/`. Planning docs are at the repo root.

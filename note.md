@@ -1,0 +1,217 @@
+# Carry-Forward Note
+
+## Current State
+
+- Repo rename is complete:
+  - repo/product name: `Designator-inator`
+  - Elixir namespace: `DesignatorInator`
+  - OTP app: `:designator_inator`
+  - CLI/escript: `designator-inator`
+  - default config paths: `~/.designator_inator/...`
+- Milestone 1 is in progress.
+- Fully implemented and verified so far:
+  - `DesignatorInator.ModelInventory`
+  - `DesignatorInator.Providers.LlamaCpp`
+  - `DesignatorInator.ModelManager`
+- Full app startup is still not ready because several later modules remain stubbed (Milestone 2+).
+
+## Toolchain / Environment
+
+- Standardized toolchain for this repo:
+  - Erlang `28.0.2`
+  - Elixir `1.19.5-otp-28`
+- `.tool-versions` is checked in.
+- `designator_inator/mix.exs` now targets `elixir: "~> 1.19"`.
+- In this Codex environment, `mix` may still be unavailable even if it works in the user's shell. If that happens, ask the user to run the targeted test and paste the result.
+
+## What Was Implemented
+
+### ModelInventory
+
+Implemented in:
+- [`designator_inator/lib/designator_inator/model_inventory.ex`](./designator_inator/lib/designator_inator/model_inventory.ex)
+
+Implemented functions:
+- `scan_directory/1`
+- `parse_gguf_filename/1`
+- `parse_quantization/1`
+- `init/1`
+- `handle_call(:list, ...)`
+- `handle_call({:get, ...}, ...)`
+- `handle_call(:rescan, ...)`
+
+Important details:
+- `FP16` is normalized to `:f16`
+- `rescan/0` preserves the last known catalog if a rescan fails
+- unparseable files are skipped rather than crashing the scan
+
+Verified passing:
+- [`designator_inator/test/designator_inator/model_inventory_test.exs`](./designator_inator/test/designator_inator/model_inventory_test.exs)
+
+Latest result:
+```text
+13 tests, 0 failures
+```
+
+### Providers.LlamaCpp
+
+Implemented in:
+- [`designator_inator/lib/designator_inator/providers/llama_cpp.ex`](./designator_inator/lib/designator_inator/providers/llama_cpp.ex)
+
+Implemented functions/callbacks:
+- `complete/2`
+- `messages_to_openai/1`
+- `health_check/1`
+- `init/1`
+- `handle_call(:await_ready, ...)`
+- `handle_call(:stop, ...)`
+- `handle_info(:health_check, ...)`
+- `handle_info({port, {:exit_status, code}}, ...)`
+- supporting helpers for request building, response extraction, process killing, and config-driven test seams
+
+Important details:
+- uses app-configured seams for HTTP client, Port opener, and kill command runner so unit tests do not require a real `llama-server`
+- converts tool calls into OpenAI-compatible `tool_calls`
+- supports readiness waiters and graceful shutdown flow
+
+Verified passing:
+- [`designator_inator/test/designator_inator/providers/llama_cpp_test.exs`](./designator_inator/test/designator_inator/providers/llama_cpp_test.exs)
+
+Latest result:
+```text
+7 tests, 0 failures
+```
+
+### ModelManager
+
+Implemented in:
+- [`designator_inator/lib/designator_inator/model_manager.ex`](./designator_inator/lib/designator_inator/model_manager.ex)
+
+Implemented functions/callbacks:
+- `estimate_vram_mb/1`
+- `lru_model/1`
+- `init/1`
+- `handle_call({:load_model, ...}, ...)`
+- `handle_call({:complete, ...}, ...)`
+- `handle_call({:unload_model, ...}, ...)`
+- `handle_call(:available_vram_mb, ...)`
+- `handle_call(:node_info, ...)`
+- supporting helpers for model loading, budget enforcement, LRU eviction, node-info refresh, local-failure fallback routing, and provider seams
+
+Important details:
+- local-vs-cloud provider routing via `provider_for/1`
+- local failure supports auto-fallback to configured cloud model
+- added app-configured provider seams for testing:
+  - `:model_manager_llama_provider`
+  - `:model_manager_openai_provider`
+  - `:model_manager_anthropic_provider`
+- keeps HTDP template comments preserved in `# Was:` blocks
+
+Verified passing:
+- [`designator_inator/test/designator_inator/model_manager_test.exs`](./designator_inator/test/designator_inator/model_manager_test.exs)
+
+Latest result:
+```text
+10 tests, 0 failures
+```
+
+Cross-check run:
+```text
+model_inventory + llama_cpp + model_manager: 30 tests, 0 failures
+```
+
+### Milestone 1 Integration (real GGUF + compiled llama-server)
+
+Environment used:
+- GGUF directory: `/media/mike/storage/models/lmstudio/lmstudio-community/gemma-3-4b-it-GGUF`
+- model: `gemma-3-4b-it-Q4_K_M`
+- llama.cpp source: `https://github.com/ggml-org/llama.cpp`
+- compiled binary: `/home/mike/projects/llama.cpp/build/bin/llama-server`
+
+Issue found and fixed:
+- `Providers.LlamaCpp.await_ready/1` had a hardcoded `15_000ms` timeout.
+- Real model load exceeded that startup window and caused `ModelManager.load_model/1` to timeout.
+- Fix applied: `await_ready/1` now reads timeout from app config key `:llama_ready_timeout_ms` (default still `15_000`).
+
+Integration result:
+```text
+load_model: :ok
+complete: {:ok, "INTEGRATION_OK\n"}
+unload_model: :ok
+```
+
+## Earlier Test / Boot Fixes Already In Place
+
+### Test repo config
+
+Updated [`designator_inator/config/test.exs`](./designator_inator/config/test.exs):
+- switched test DB from SQLite `:memory:` to file-backed DB
+- set `pool_size: 1`
+
+Reason:
+- `:memory:` lost migration state across Mix alias/test process boundaries
+- current `ecto_sqlite3` requires `pool_size: 1` for in-memory DB anyway
+
+### Test helper
+
+Updated [`designator_inator/test/test_helper.exs`](./designator_inator/test/test_helper.exs):
+- explicitly starts `DesignatorInator.Memory.Repo`
+
+### Test application boot
+
+Updated [`designator_inator/mix.exs`](./designator_inator/mix.exs):
+- in `:test`, do not start `DesignatorInator.Application`
+
+Reason:
+- unfinished supervisors/stubs were crashing test startup
+
+### Fixture helper fix
+
+Updated [`designator_inator/test/support/fixtures.ex`](./designator_inator/test/support/fixtures.ex):
+- removed invalid `on_exit/1` call from helper module `tmp_dir/1`
+
+## Important Context For Next Session
+
+- Follow [`agents.md`](./agents.md) strictly:
+  - keep HTDP scaffolding comments
+  - do not remove docs
+  - implement one module at a time
+  - update `plan.md` after meaningful progress
+- Unit-test-by-module is still the right workflow.
+- Do not try to boot the whole application yet.
+- Milestone 1 integration has been run successfully against a real local GGUF with compiled `llama-server`.
+
+## Recommended Next Step
+
+Milestone 1 integration is complete. Next up is Milestone 2:
+- `Tools.Workspace.safe_path/2`
+- `Tools.Workspace` file ops + dispatch
+- `Memory` persistence functions
+
+Keep these targeted tests green while moving forward:
+
+```bash
+cd /home/mike/projects/Designator-inator/designator_inator
+mix test test/designator_inator/model_inventory_test.exs \
+         test/designator_inator/providers/llama_cpp_test.exs \
+         test/designator_inator/model_manager_test.exs
+```
+
+Then start adding Milestone 2 tests module-by-module before implementing each stub.
+
+## Known Warnings
+
+- OTP `28.0` emits a regex recompilation warning at runtime.
+- This is not a blocker.
+- Upgrading from `28.0.2` to a later `28.x` should remove it, but it is not urgent.
+
+## Files Changed In This Session
+
+- [`plan.md`](./plan.md)
+- [`note.md`](./note.md)
+- [`designator_inator/lib/designator_inator/model_inventory.ex`](./designator_inator/lib/designator_inator/model_inventory.ex)
+- [`designator_inator/test/designator_inator/model_inventory_test.exs`](./designator_inator/test/designator_inator/model_inventory_test.exs)
+- [`designator_inator/lib/designator_inator/providers/llama_cpp.ex`](./designator_inator/lib/designator_inator/providers/llama_cpp.ex)
+- [`designator_inator/test/designator_inator/providers/llama_cpp_test.exs`](./designator_inator/test/designator_inator/providers/llama_cpp_test.exs)
+- [`designator_inator/lib/designator_inator/model_manager.ex`](./designator_inator/lib/designator_inator/model_manager.ex)
+- [`designator_inator/test/designator_inator/model_manager_test.exs`](./designator_inator/test/designator_inator/model_manager_test.exs)

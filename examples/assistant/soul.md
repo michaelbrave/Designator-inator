@@ -1,6 +1,6 @@
 # Assistant
 
-You are a helpful, concise assistant running locally on the user's machine via ForgeClaw.
+You are a helpful, concise assistant running locally on the user's machine via DesignatorInator.
 
 ## Capabilities
 

@@ -1,0 +1,19 @@
+# Elixir build artifacts
+_build/
+deps/
+.cover/
+.elixir_ls/
+*.ez
+
+# Nested app artifacts
+designator_inator/_build/
+designator_inator/deps/
+designator_inator/.elixir_ls/
+designator_inator/cover/
+designator_inator/.mix/
+designator_inator/tmp/*.db
+designator_inator/tmp/*.db-*
+
+# OS/editor
+.DS_Store
+*.swp

@@ -6,11 +6,11 @@ part of the reason I was thinking of going down to the ollama/lmstudio level is 
 
 ---
 
-# **ForgeClaw — Build Specification**
+# **DesignatorInator — Build Specification**
 
 ## **What This Is**
 
-ForgeClaw is a local-first AI agent orchestration system built on Elixir/BEAM. It manages local model inference via llama.cpp, runs agents as isolated "Pods" with their own personas and tools, exposes everything through MCP (Model Context Protocol) for interoperability, and supports distributed swarms across devices on a LAN.
+DesignatorInator is a local-first AI agent orchestration system built on Elixir/BEAM. It manages local model inference via llama.cpp, runs agents as isolated "Pods" with their own personas and tools, exposes everything through MCP (Model Context Protocol) for interoperability, and supports distributed swarms across devices on a LAN.
 
 The core insight is **"every agent is an MCP server."** Agents don't use proprietary protocols — they expose standard MCP tools to each other and to the outside world. This means the system is natively compatible with Claude Desktop, Cursor, and anything else that speaks MCP, without building custom UIs.
 
@@ -36,12 +36,12 @@ The system is a single Elixir application structured as a supervisor tree. Every
 
 **Top-level supervisors and what they own:**
 
-* **ForgeClaw.Application** — The root. Starts everything below.  
-  * **ForgeClaw.ModelManager** — Manages all inference backends (local llama.cpp instances AND cloud provider connections). Monitors VRAM/RAM, loads/unloads GGUFs, routes inference requests to the right backend.  
-  * **ForgeClaw.PodSupervisor** — A DynamicSupervisor that spawns and monitors Agent Pods. Each pod is a child process (or process tree). If a pod crashes, it restarts with state preserved from its last checkpoint.  
-  * **ForgeClaw.SwarmRegistry** — Uses Erlang's `:pg` (process groups) to track all active pods across all connected nodes. This is what makes distributed routing work.  
-  * **ForgeClaw.MCPGateway** — The bridge between internal Elixir messages and external MCP JSON-RPC over stdio/SSE. This is how Claude Desktop, Cursor, or any MCP client talks to the swarm.  
-  * **ForgeClaw.ToolRegistry** — Central catalog of all available MCP tools across all pods. When the orchestrator needs to decide who can handle a task, it queries this.  
+* **DesignatorInator.Application** — The root. Starts everything below.  
+  * **DesignatorInator.ModelManager** — Manages all inference backends (local llama.cpp instances AND cloud provider connections). Monitors VRAM/RAM, loads/unloads GGUFs, routes inference requests to the right backend.  
+  * **DesignatorInator.PodSupervisor** — A DynamicSupervisor that spawns and monitors Agent Pods. Each pod is a child process (or process tree). If a pod crashes, it restarts with state preserved from its last checkpoint.  
+  * **DesignatorInator.SwarmRegistry** — Uses Erlang's `:pg` (process groups) to track all active pods across all connected nodes. This is what makes distributed routing work.  
+  * **DesignatorInator.MCPGateway** — The bridge between internal Elixir messages and external MCP JSON-RPC over stdio/SSE. This is how Claude Desktop, Cursor, or any MCP client talks to the swarm.  
+  * **DesignatorInator.ToolRegistry** — Central catalog of all available MCP tools across all pods. When the orchestrator needs to decide who can handle a task, it queries this.  
   * Note: do we need a model router or a router model too or does the model manager also do that?
 
 ---
@@ -52,7 +52,7 @@ This is the lowest layer — it handles actually running models.
 
 ### **Local Inference (llama.cpp)**
 
-**How it works:** ForgeClaw spawns `llama-server` as an OS process via Elixir's `Port` module. Each running model gets its own `llama-server` process, managed by a GenServer that handles health checks, request routing, and lifecycle.
+**How it works:** DesignatorInator spawns `llama-server` as an OS process via Elixir's `Port` module. Each running model gets its own `llama-server` process, managed by a GenServer that handles health checks, request routing, and lifecycle.
 
 **Why Port and not NIFs:** NIFs (native bindings) crash the entire BEAM VM if they segfault. A Port is an external OS process — if llama-server crashes, the Port GenServer detects it and restarts it. This is critical for stability.
 
@@ -190,7 +190,7 @@ The orchestrator is itself an Agent Pod — it runs a higher-capability model (o
 
 ## **Swarm (Distributed Operation)**
 
-**How Erlang distribution works (simplified):** Each machine running ForgeClaw is a "node." Nodes connect to each other with `Node.connect(:"forgeclaw@192.168.1.50")`. Once connected, processes on different nodes can send messages to each other transparently — the code doesn't change whether the target process is local or remote.
+**How Erlang distribution works (simplified):** Each machine running DesignatorInator is a "node." Nodes connect to each other with `Node.connect(:"designator_inator@192.168.1.50")`. Once connected, processes on different nodes can send messages to each other transparently — the code doesn't change whether the target process is local or remote.
 
 **Discovery:** When a pod starts on any node, it registers itself in the `:pg` process group. The SwarmRegistry on every node sees it. When the orchestrator on Node A needs a code reviewer, it checks the registry, finds one on Node B, and calls it. The Erlang VM handles the networking.
 
@@ -206,7 +206,7 @@ This is ordered so each step produces something testable before moving to the ne
 
 ### **Foundation**
 
-* **Set up Elixir project** — `mix new forge_claw --sup` with the supervisor tree skeleton. Get it compiling and running with empty supervisors.  
+* **Set up Elixir project** — `mix new designator_inator --sup` with the supervisor tree skeleton. Get it compiling and running with empty supervisors.  
 * **llama-server Port wrapper** — GenServer that can spawn a `llama-server` process, point it at a GGUF file, health-check it, and shut it down cleanly. Test: start the server, send a completion request via HTTP, get a response back.  
 * **Model inventory** — Scan a configurable directory for GGUF files, parse their metadata (parameter count, quantization), expose as a queryable list. Test: point at a directory with GGUFs, get back a list of available models.  
 * **Basic inference GenServer** — Wraps the llama-server HTTP API with a clean Elixir interface. Handles request queuing, timeouts, streaming. Test: `ModelManager.complete("Hello world", model: "mistral-7b")` returns a response.  
@@ -222,8 +222,8 @@ This is ordered so each step produces something testable before moving to the ne
 ### **Agent Pod Packaging**
 
 * **manifest.yaml parser** — Read and validate pod manifests. Check required fields, validate tool definitions, check hardware requirements against available resources. Test: parse a valid manifest, reject an invalid one.  
-* **Pod lifecycle manager** — Start a pod from a directory, load its manifest and soul.md, request its model from ModelManager, initialize its tools, register it as available. Test: `ForgeClaw.start_pod("./my-agent/")` brings up a working agent.  
-* **CLI interface** — `forge run ./my-agent/` starts a pod and drops into an interactive chat. `forge list` shows running pods. `forge stop <name>` shuts one down. Test: start a pod from CLI, chat with it, stop it.  
+* **Pod lifecycle manager** — Start a pod from a directory, load its manifest and soul.md, request its model from ModelManager, initialize its tools, register it as available. Test: `DesignatorInator.start_pod("./my-agent/")` brings up a working agent.  
+* **CLI interface** — `designator-inator run ./my-agent/` starts a pod and drops into an interactive chat. `designator-inator list` shows running pods. `designator-inator stop <name>` shuts one down. Test: start a pod from CLI, chat with it, stop it.  
 * **Auto-pull models** — When a pod requests a model that isn't local, download it from HuggingFace (or configured registry). Show progress, verify checksum, store in model directory. Test: start a pod that requests a model you don't have, verify it downloads and loads.  
 * **Workspace isolation** — Each pod gets its own workspace directory. Internal tools are scoped to this directory — a pod can't read another pod's workspace. Test: start two pods, verify they can't access each other's files.
 
@@ -231,7 +231,7 @@ This is ordered so each step produces something testable before moving to the ne
 
 * **JSON-RPC parser** — Implement MCP's JSON-RPC protocol over stdio. Handle `initialize`, `tools/list`, `tools/call`, and resource endpoints. Test: send raw JSON-RPC messages to stdin, get valid responses on stdout.  
 * **Pod-to-MCP-server bridge** — Wrap a running pod's exposed tools as MCP tool definitions. When an MCP `tools/call` comes in, route it to the pod's reasoning loop, return the result. Test: call a pod's tool via raw MCP JSON-RPC.  
-* **Claude Desktop integration test** — Configure Claude Desktop to connect to a running ForgeClaw pod as an MCP server. Have Claude send it a task and get results back. This is the first major integration milestone.  
+* **Claude Desktop integration test** — Configure Claude Desktop to connect to a running DesignatorInator pod as an MCP server. Have Claude send it a task and get results back. This is the first major integration milestone.  
 * **SSE transport** — Add Server-Sent Events as an alternative MCP transport (for web-based clients and remote connections). Test: connect to the MCP server via HTTP SSE, call tools.  
 * **MCPGateway multi-pod routing** — The gateway exposes ALL running pods' tools under a single MCP interface. External clients see one MCP server with all available tools. The gateway routes calls to the appropriate pod. Test: start two pods, connect Claude Desktop, verify both pods' tools appear.
 
@@ -250,7 +250,7 @@ This is ordered so each step produces something testable before moving to the ne
 
 ### **Distributed Swarm**
 
-* **Node connection** — Boot ForgeClaw on two machines on the same LAN. Connect them with `Node.connect/1`. Verify processes can communicate cross-node. Test: send a message from a process on Node A to a process on Node B.  
+* **Node connection** — Boot DesignatorInator on two machines on the same LAN. Connect them with `Node.connect/1`. Verify processes can communicate cross-node. Test: send a message from a process on Node A to a process on Node B.  
 * **Cross-node pod discovery** — When a pod starts on any node, it registers in the `:pg` group. The SwarmRegistry on every node sees it. Test: start a pod on Node B, verify Node A's registry shows it.  
 * **Cross-node model awareness** — Each node's ModelManager broadcasts its available models and resource usage. The orchestrator uses this to make routing decisions. Test: query available models from the orchestrator, see models across all nodes.  
 * **Cross-node task delegation** — The orchestrator on Node A calls a pod's MCP tools on Node B. The Erlang VM handles serialization and transport. Test: delegate a task from Node A to a pod on Node B, get the result back.  
