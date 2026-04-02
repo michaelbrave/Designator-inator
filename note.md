@@ -188,6 +188,10 @@ Milestone 1 integration is complete. Next up is Milestone 2:
 - `Tools.Workspace` file ops + dispatch
 - `Memory` persistence functions
 
+Note on test status:
+- The full `mix test` suite is expected to stay partially red until later milestones are implemented.
+- For now, validate the milestone-specific test files and the module(s) you are actively changing.
+
 Keep these targeted tests green while moving forward:
 
 ```bash
@@ -204,6 +208,31 @@ Then start adding Milestone 2 tests module-by-module before implementing each st
 - OTP `28.0` emits a regex recompilation warning at runtime.
 - This is not a blocker.
 - Upgrading from `28.0.2` to a later `28.x` should remove it, but it is not urgent.
+
+## Post-Review Fixes (2026-04-02)
+
+A code review pass found two spec deviations. Both are now fixed and all 32 Milestone 1 tests pass.
+
+### Fix 1: `parse_quantization/1` unknown string case
+
+**Problem:** `parse_quantization/1` ran `String.upcase(str)` and then returned `{:unknown, upper}`, silently uppercasing unrecognized quantization strings. The `# Template:` comment and the function's intent was to preserve the original string.
+
+**Fix:** Changed `upper -> {:unknown, upper}` to `_ -> {:unknown, str}` so the original casing is preserved.
+
+**File:** `designator_inator/lib/designator_inator/model_inventory.ex`
+
+### Fix 2: Auto-fallback 3-consecutive-errors threshold
+
+**Problem:** `ModelManager.handle_local_failure/5` triggered cloud fallback on the **first** local inference error in `:auto` mode. The spec in `plan.md` says fallback triggers after **3 consecutive** inference errors; load/capacity errors (`:model_not_found`, `:insufficient_vram`) are still immediate triggers.
+
+**Fix:** `handle_local_failure` now tracks `new_errors = consecutive_errors + 1` and only calls the cloud provider when `new_errors >= 3` (for inference errors) or `reason in [:model_not_found, :insufficient_vram]` (immediate). The existing `consecutive_errors` state field was already present for this purpose.
+
+**Test update:** Replaced the single "falls back to cloud in :auto mode when local inference fails" test with three targeted tests:
+- `does not fall back on first or second consecutive inference error in :auto mode`
+- `falls back to cloud after 3 consecutive inference errors in :auto mode`
+- `falls back immediately to cloud on model load error in :auto mode`
+
+**Files:** `designator_inator/lib/designator_inator/model_manager.ex`, `designator_inator/test/designator_inator/model_manager_test.exs`
 
 ## Files Changed In This Session
 

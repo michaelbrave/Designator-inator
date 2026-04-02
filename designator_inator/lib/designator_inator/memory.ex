@@ -24,7 +24,7 @@ defmodule DesignatorInator.Memory do
   earlier turns.
   """
 
-  import Ecto.Query, only: [from: 2]
+  import Ecto.Query
 
   alias DesignatorInator.Memory.{Repo, ConversationMessage}
   alias DesignatorInator.Types.Message
@@ -46,11 +46,18 @@ defmodule DesignatorInator.Memory do
   @spec save_message(String.t(), String.t(), Message.t()) ::
           {:ok, ConversationMessage.t()} | {:error, Ecto.Changeset.t()}
   def save_message(pod_name, session_id, %Message{} = message) do
-    # Template (HTDP step 4):
-    # 1. Convert Message struct to ConversationMessage attrs:
-    #    - tool_calls: Jason.encode! if present, nil otherwise
-    # 2. Build changeset and Repo.insert/1
-    raise "not implemented"
+    attrs = %{
+      pod_name: pod_name,
+      session_id: session_id,
+      role: Atom.to_string(message.role),
+      content: message.content,
+      tool_calls: encode_tool_calls(message.tool_calls),
+      tool_call_id: message.tool_call_id
+    }
+
+    struct(ConversationMessage)
+    |> ConversationMessage.changeset(attrs)
+    |> Repo.insert()
   end
 
   @doc """
@@ -72,12 +79,12 @@ defmodule DesignatorInator.Memory do
   """
   @spec load_history(String.t(), String.t(), pos_integer()) :: [Message.t()]
   def load_history(pod_name, session_id, limit \\ 20) do
-    # Template (HTDP step 4):
-    # 1. Query ConversationMessage where pod_name == pod_name and session_id == session_id
-    # 2. Order by inserted_at ASC, limit to `limit` rows
-    # 3. Map each record back to a %Message{} struct
-    #    - Decode tool_calls JSON if present
-    raise "not implemented"
+    ConversationMessage
+    |> where([m], m.pod_name == ^pod_name and m.session_id == ^session_id)
+    |> order_by([m], asc: m.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.map(&message_from_record/1)
   end
 
   @doc """
@@ -106,9 +113,12 @@ defmodule DesignatorInator.Memory do
   """
   @spec list_sessions(String.t()) :: [String.t()]
   def list_sessions(pod_name) do
-    # Template:
-    # SELECT DISTINCT session_id FROM conversation_messages WHERE pod_name = ^pod_name
-    raise "not implemented"
+    ConversationMessage
+    |> where([m], m.pod_name == ^pod_name)
+    |> select([m], m.session_id)
+    |> distinct(true)
+    |> order_by([m], asc: m.session_id)
+    |> Repo.all()
   end
 
   @doc """
@@ -121,9 +131,31 @@ defmodule DesignatorInator.Memory do
   """
   @spec clear_session(String.t(), String.t()) :: :ok
   def clear_session(pod_name, session_id) do
-    # Template:
-    # DELETE FROM conversation_messages WHERE pod_name = ^pod_name AND session_id = ^session_id
-    raise "not implemented"
+    ConversationMessage
+    |> where([m], m.pod_name == ^pod_name and m.session_id == ^session_id)
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  defp encode_tool_calls(nil), do: nil
+  defp encode_tool_calls(calls), do: Jason.encode!(calls)
+
+  defp message_from_record(record) do
+    %Message{
+      role: String.to_existing_atom(record.role),
+      content: record.content,
+      tool_calls: decode_tool_calls(record.tool_calls),
+      tool_call_id: record.tool_call_id
+    }
+  end
+
+  defp decode_tool_calls(nil), do: nil
+  defp decode_tool_calls(json) do
+    case Jason.decode(json) do
+      {:ok, calls} -> calls
+      {:error, _} -> nil
+    end
   end
 end
 

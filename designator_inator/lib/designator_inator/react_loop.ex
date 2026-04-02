@@ -54,7 +54,8 @@ defmodule DesignatorInator.ReActLoop do
 
   require Logger
 
-  alias DesignatorInator.Types.{Message, ToolCall, ToolResult, ToolDefinition, ReActState}
+  alias DesignatorInator.ToolCallParser
+  alias DesignatorInator.Types.{Message, ToolCall, ToolDefinition, ToolResult, ReActState}
 
   @doc """
   Runs the ReAct loop until the model produces a final answer or an error occurs.
@@ -79,24 +80,45 @@ defmodule DesignatorInator.ReActLoop do
           keyword()
         ) :: {:ok, String.t()} | {:error, term()}
   def run(initial_messages, available_tools, tool_executor, inference_fn, opts \\ []) do
-    # Template (HTDP step 4):
-    # 1. Build initial %ReActState{} from opts and initial_messages
-    # 2. Build tools_prompt: format available_tools as a text block to inject
-    #    into the system message (or append as a user message for some formats)
-    # 3. Call step/4 recursively until state.status is :done, :error, or :max_iterations
-    # 4. Map final state to {:ok, state.result} or {:error, state.error | :max_iterations}
-    raise "not implemented"
+    pod_name = Keyword.get(opts, :pod_name, "unknown")
+    session_id = Keyword.get(opts, :session_id, "unknown")
+    max_iterations = Keyword.get(opts, :max_iterations, 20)
+    tool_call_format = Keyword.get(opts, :tool_call_format, :llama3)
+
+    messages =
+      case format_tools_prompt(available_tools, tool_call_format) do
+        "" -> initial_messages
+        tools_prompt -> inject_tools_prompt(initial_messages, tools_prompt)
+      end
+
+    state = %ReActState{
+      pod_name: pod_name,
+      session_id: session_id,
+      messages: messages,
+      status: :thinking,
+      iterations: 0,
+      max_iterations: max_iterations
+    }
+
+    final_state = loop(state, available_tools, tool_executor, inference_fn, tool_call_format)
+
+    case final_state.status do
+      :done -> {:ok, final_state.result}
+      :error -> {:error, final_state.error}
+      :max_iterations -> {:error, :max_iterations}
+      other -> {:error, other}
+    end
   end
 
   @doc """
   Executes one iteration of the loop: call the model, parse the response,
   either execute tools or mark done.
 
-  Returns the updated `ReActState`.  The caller loops until `status` is terminal.
+  Returns the updated `ReActState`. The caller loops until `status` is terminal.
 
   ## Examples
 
-      # Model responds with a tool call → status becomes :tool_calling then :thinking
+      # Model responds with a tool call → status becomes :thinking after execution
       iex> state = %ReActState{status: :thinking, messages: [...], iterations: 0, ...}
       iex> DesignatorInator.ReActLoop.step(state, tools, executor, inference_fn)
       %ReActState{status: :thinking, iterations: 1, messages: [...tool result appended...]}
@@ -112,58 +134,62 @@ defmodule DesignatorInator.ReActLoop do
           ([Message.t()], keyword() -> {:ok, String.t()} | {:error, term()})
         ) :: ReActState.t()
   def step(state, available_tools, tool_executor, inference_fn) do
-    # Template (HTDP step 4):
-    # 1. Guard: if state.iterations >= state.max_iterations,
-    #    return %{state | status: :max_iterations}
-    # 2. Call inference_fn.(state.messages, []) → {:ok, text} | {:error, reason}
-    # 3. On {:error, reason}: return %{state | status: :error, error: inspect(reason)}
-    # 4. Append assistant message to state.messages
-    # 5. Parse tool calls: ToolCallParser.parse(text, format, call_id_prefix)
-    # 6. If tool_calls is empty: return %{state | status: :done, result: text}
-    # 7. If tool_calls present:
-    #    a. Execute each call with tool_executor.(call)
-    #    b. Append each result as a :tool Message
-    #    c. Return %{state | status: :thinking, iterations: state.iterations + 1, messages: ...}
-    raise "not implemented"
+    do_step(state, available_tools, tool_executor, inference_fn, :llama3)
   end
 
   @doc """
   Formats `available_tools` into a text description injected into the system prompt.
 
-  The exact format depends on `tool_call_format`.  The goal is to tell the model:
+  The exact format depends on `tool_call_format`. The goal is to tell the model:
   - What tools exist
   - What parameters each tool takes
   - How to invoke them (what syntax to use)
 
   ## Examples
 
-      iex> DesignatorInator.ReActLoop.format_tools_prompt(
+      iex> prompt = DesignatorInator.ReActLoop.format_tools_prompt(
       ...>   [%ToolDefinition{name: "workspace", description: "...", parameters: %{...}}],
       ...>   :llama3
       ...> )
-      \"\"\"
-      You have access to the following tools:
-
-      - workspace: Read, write, and list files in the workspace.
-        Parameters:
-          - action (required, string): Operation: read, write, list, delete
-          - path (optional, string): File path relative to workspace root
-          ...
-
-      To use a tool, respond with:
-      <tool_call>
-      {"name": "tool_name", "arguments": {"param": "value"}}
-      </tool_call>
-      \"\"\"
+      iex> prompt =~ "You have access to the following tools:"
+      true
+      iex> prompt =~ "<tool_call>"
+      true
   """
   @spec format_tools_prompt([ToolDefinition.t()], atom()) :: String.t()
   def format_tools_prompt(available_tools, format) do
-    # Template (HTDP step 4):
-    # 1. If available_tools is empty: return ""
-    # 2. Build a header line
-    # 3. For each tool: format name, description, and parameters
-    # 4. Append the invocation syntax for the given format
-    raise "not implemented"
+    if available_tools == [] do
+      ""
+    else
+      tool_lines =
+        Enum.map(available_tools, fn tool ->
+          params =
+            tool.parameters
+            |> Enum.map(fn {name, schema} ->
+              required = if Map.get(schema, :required, false), do: "required", else: "optional"
+              type = Map.get(schema, :type, :string)
+              description = Map.get(schema, :description, "")
+              enum = Map.get(schema, :enum)
+              enum_text = if is_list(enum), do: ", enum: #{Enum.join(enum, ", ")}", else: ""
+              "  - #{name} (#{required}, #{type}): #{description}#{enum_text}"
+            end)
+            |> Enum.join("\n")
+
+          "- #{tool.name}: #{tool.description}\n#{params}"
+        end)
+
+      invocation =
+        case format do
+          :chatml ->
+            "To use a tool, respond with:\n<|tool_calls|>\n[{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}]\n<|end_tool_calls|>"
+
+          _ ->
+            "To use a tool, respond with:\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>"
+        end
+
+      ["You have access to the following tools:", Enum.join(tool_lines, "\n\n"), invocation]
+      |> Enum.join("\n\n")
+    end
   end
 
   @doc """
@@ -184,18 +210,71 @@ defmodule DesignatorInator.ReActLoop do
   """
   @spec tool_result_to_message(ToolResult.t()) :: Message.t()
   def tool_result_to_message(%ToolResult{is_error: true} = result) do
-    %Message{
-      role: :tool,
-      content: "Error: #{result.content}",
-      tool_call_id: result.tool_call_id
-    }
+    %Message{role: :tool, content: "Error: #{result.content}", tool_call_id: result.tool_call_id}
   end
 
   def tool_result_to_message(%ToolResult{} = result) do
-    %Message{
-      role: :tool,
-      content: result.content,
-      tool_call_id: result.tool_call_id
-    }
+    %Message{role: :tool, content: result.content, tool_call_id: result.tool_call_id}
   end
+
+  defp loop(%ReActState{status: status} = state, _tools, _executor, _inference_fn, _format)
+       when status in [:done, :error, :max_iterations],
+       do: state
+
+  defp loop(state, available_tools, tool_executor, inference_fn, format) do
+    next_state = do_step(state, available_tools, tool_executor, inference_fn, format)
+
+    if next_state.status in [:done, :error, :max_iterations] do
+      next_state
+    else
+      loop(next_state, available_tools, tool_executor, inference_fn, format)
+    end
+  end
+
+  defp do_step(%ReActState{iterations: iterations, max_iterations: max} = state, _tools, _executor, _inference_fn, _format)
+       when iterations >= max do
+    %{state | status: :max_iterations}
+  end
+
+  defp do_step(state, _available_tools, tool_executor, inference_fn, format) do
+    case inference_fn.(state.messages, tool_call_format: format) do
+      {:error, reason} ->
+        %{state | status: :error, error: inspect(reason)}
+
+      {:ok, text} ->
+        call_id_prefix = "#{state.pod_name}_#{state.session_id}_#{state.iterations}"
+        tool_calls = ToolCallParser.parse(text, format, call_id_prefix)
+        assistant_message = %Message{role: :assistant, content: assistant_content(text, tool_calls), tool_calls: tool_calls}
+        messages = state.messages ++ [assistant_message]
+
+        if tool_calls == [] do
+          %{state | status: :done, result: text, messages: messages}
+        else
+          tool_messages =
+            Enum.map(tool_calls, fn call ->
+              call
+              |> tool_executor.()
+              |> tool_result_to_message()
+            end)
+
+          %{state | status: :thinking, iterations: state.iterations + 1, messages: messages ++ tool_messages}
+        end
+    end
+  end
+
+  defp assistant_content(text, []), do: text
+  defp assistant_content(_text, _tool_calls), do: nil
+
+  defp inject_tools_prompt(messages, tools_prompt) do
+    case messages do
+      [%Message{role: :system, content: content} = system | rest] ->
+        [%Message{system | content: merge_prompt(content, tools_prompt)} | rest]
+
+      _ ->
+        [%Message{role: :system, content: tools_prompt} | messages]
+    end
+  end
+
+  defp merge_prompt(nil, tools_prompt), do: tools_prompt
+  defp merge_prompt(content, tools_prompt), do: content <> "\n\n" <> tools_prompt
 end

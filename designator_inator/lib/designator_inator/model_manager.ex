@@ -505,21 +505,28 @@ defmodule DesignatorInator.ModelManager do
   defp handle_local_failure(messages, opts, state, reason, local_error) do
     fallback_mode = Keyword.get(opts, :fallback_mode, :disabled)
     fallback_model = Keyword.get(opts, :fallback)
+    new_errors = Map.get(state, :consecutive_errors, 0) + 1
 
-    if fallback_mode == :auto and is_binary(fallback_model) do
+    # Load/capacity errors (model not found, VRAM full) trigger immediate fallback.
+    # Transient inference errors require 3 consecutive failures before triggering fallback.
+    immediate_trigger = reason in [:model_not_found, :insufficient_vram]
+    should_fallback = fallback_mode == :auto and is_binary(fallback_model) and
+                      (immediate_trigger or new_errors >= 3)
+
+    if should_fallback do
       cloud_provider = provider_module(provider_for(fallback_model))
-      fallback_opts = opts |> Keyword.put(:model, fallback_model)
+      fallback_opts = Keyword.put(opts, :model, fallback_model)
       fallback_result = cloud_provider.complete(messages, fallback_opts)
 
       next_state =
         case fallback_result do
           {:ok, _} -> Map.put(state, :consecutive_errors, 0)
-          {:error, _} -> Map.update(state, :consecutive_errors, 1, &(&1 + 1))
+          {:error, _} -> Map.put(state, :consecutive_errors, new_errors)
         end
 
       {:reply, fallback_result, refresh_node_info(next_state)}
     else
-      next_state = Map.update(state, :consecutive_errors, 1, &(&1 + 1)) |> refresh_node_info()
+      next_state = Map.put(state, :consecutive_errors, new_errors) |> refresh_node_info()
       Logger.warning("Local completion failed for model #{inspect(Keyword.get(opts, :model))}: #{inspect(reason)}")
       {:reply, local_error, next_state}
     end

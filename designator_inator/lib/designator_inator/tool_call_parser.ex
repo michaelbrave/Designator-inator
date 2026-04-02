@@ -127,15 +127,28 @@ defmodule DesignatorInator.ToolCallParser.Llama3 do
   @impl DesignatorInator.ToolCallParser
   @spec parse(String.t(), String.t()) :: [ToolCall.t()]
   def parse(response_text, call_id_prefix) do
-    # Template (HTDP step 4):
-    # 1. Find all matches of @tool_call_regex in response_text
-    # 2. For each match (the captured JSON string):
-    #    a. Jason.decode(json)
-    #    b. If {:ok, %{"name" => name, "arguments" => args}}:
-    #       build %ToolCall{id: "#{call_id_prefix}_#{index}", name: name, arguments: args}
-    #    c. If {:error, _} or unexpected shape: Logger.warning and skip
-    # 3. Return list of successfully parsed ToolCalls
-    raise "not implemented"
+    @tool_call_regex
+    |> Regex.scan(response_text, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.with_index()
+    |> Enum.reduce([], fn {json, index}, acc ->
+      case Jason.decode(json) do
+        {:ok, %{"name" => name, "arguments" => arguments}} when is_map(arguments) ->
+          [%ToolCall{id: "#{call_id_prefix}_#{index}", name: name, arguments: arguments} | acc]
+
+        {:ok, %{"name" => name}} ->
+          [%ToolCall{id: "#{call_id_prefix}_#{index}", name: name, arguments: %{}} | acc]
+
+        {:ok, other} ->
+          Logger.warning("Skipping malformed Llama3 tool call: #{inspect(other)}")
+          acc
+
+        {:error, reason} ->
+          Logger.warning("Skipping malformed Llama3 tool call JSON: #{inspect(reason)}")
+          acc
+      end
+    end)
+    |> Enum.reverse()
   end
 end
 
@@ -175,12 +188,38 @@ defmodule DesignatorInator.ToolCallParser.ChatML do
   @impl DesignatorInator.ToolCallParser
   @spec parse(String.t(), String.t()) :: [ToolCall.t()]
   def parse(response_text, call_id_prefix) do
-    # Template (HTDP step 4):
-    # 1. Find @tool_calls_regex match in response_text
-    # 2. If no match: return []
-    # 3. Jason.decode the captured JSON array
-    # 4. Map each item to %ToolCall{id: ..., name: ..., arguments: ...}
-    # 5. Log and skip malformed items
-    raise "not implemented"
+    case Regex.run(@tool_calls_regex, response_text, capture: :all_but_first) do
+      [json] ->
+        case Jason.decode(json) do
+          {:ok, calls} when is_list(calls) ->
+            calls
+            |> Enum.with_index()
+            |> Enum.reduce([], fn {item, index}, acc ->
+              case item do
+                %{"name" => name, "arguments" => arguments} when is_map(arguments) ->
+                  [%ToolCall{id: "#{call_id_prefix}_#{index}", name: name, arguments: arguments} | acc]
+
+                %{"name" => name} ->
+                  [%ToolCall{id: "#{call_id_prefix}_#{index}", name: name, arguments: %{}} | acc]
+
+                other ->
+                  Logger.warning("Skipping malformed ChatML tool call: #{inspect(other)}")
+                  acc
+              end
+            end)
+            |> Enum.reverse()
+
+          {:ok, other} ->
+            Logger.warning("Skipping malformed ChatML tool call payload: #{inspect(other)}")
+            []
+
+          {:error, reason} ->
+            Logger.warning("Skipping malformed ChatML tool call JSON: #{inspect(reason)}")
+            []
+        end
+
+      _ ->
+        []
+    end
   end
 end

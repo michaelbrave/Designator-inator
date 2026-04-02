@@ -166,23 +166,48 @@ defmodule DesignatorInator.ModelManagerTest do
       assert [] = ModelManager.list_loaded()
     end
 
-    test "falls back to cloud in :auto mode when local inference fails" do
+    test "does not fall back on first or second consecutive inference error in :auto mode" do
       State.set_local_result({:error, :timeout})
 
+      opts = [model: "tinyllama-1.1b-chat-v1.0.Q4_K_M", fallback: "claude-haiku", fallback_mode: :auto]
+
+      assert {:error, :timeout} = ModelManager.complete([%{role: :user, content: "hello"}], opts)
+      assert {:error, :timeout} = ModelManager.complete([%{role: :user, content: "hello"}], opts)
+
+      # Only local calls, no cloud fallback yet
+      assert [{:local_complete, _, _}, {:local_complete, _, _}] = State.calls()
+    end
+
+    test "falls back to cloud after 3 consecutive inference errors in :auto mode" do
+      State.set_local_result({:error, :timeout})
+
+      opts = [model: "tinyllama-1.1b-chat-v1.0.Q4_K_M", fallback: "claude-haiku", fallback_mode: :auto]
+
+      ModelManager.complete([%{role: :user, content: "hello"}], opts)
+      ModelManager.complete([%{role: :user, content: "hello"}], opts)
+
+      assert {:ok, "cloud ok"} = ModelManager.complete([%{role: :user, content: "hello"}], opts)
+
+      # 3 local attempts then 1 cloud fallback
+      assert [
+               {:local_complete, _, _},
+               {:local_complete, _, _},
+               {:local_complete, _, _},
+               {:anthropic_complete, _, fallback_opts}
+             ] = State.calls()
+
+      assert fallback_opts[:model] == "claude-haiku"
+    end
+
+    test "falls back immediately to cloud on model load error in :auto mode" do
       assert {:ok, "cloud ok"} =
-               ModelManager.complete([
-                 %{role: :user, content: "hello"}
-               ],
-                 model: "tinyllama-1.1b-chat-v1.0.Q4_K_M",
+               ModelManager.complete([%{role: :user, content: "hello"}],
+                 model: "nonexistent-model",
                  fallback: "claude-haiku",
                  fallback_mode: :auto
                )
 
-      assert [
-               {:local_complete, _local_messages, _opts},
-               {:anthropic_complete, _fallback_messages, fallback_opts}
-             ] = State.calls()
-
+      assert [{:anthropic_complete, _, fallback_opts}] = State.calls()
       assert fallback_opts[:model] == "claude-haiku"
     end
   end

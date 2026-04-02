@@ -217,7 +217,7 @@ defmodule DesignatorInator.ModelInventory do
       "FP16" -> :f16
       "F32" -> :f32
       "BF16" -> :bf16
-      upper -> {:unknown, upper}
+      _ -> {:unknown, str}
     end
 
     # Was:

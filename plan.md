@@ -13,8 +13,8 @@
 | Phase | Status |
 |-------|--------|
 | HTDP scaffolding (steps 1–4) — all modules | **DONE** |
-| Implementation (step 5) — all stubs | **NOT STARTED** |
-| Tests passing (step 6) | **NOT STARTED** |
+| Implementation (step 5) — all stubs | **IN PROGRESS** |
+| Tests passing (step 6) | **PARTIAL** |
 
 **What exists now:** Every module has been created with full data definitions
 (`@type`, `defstruct`), signatures (`@spec`), purpose statements and examples
@@ -122,8 +122,10 @@ Each milestone produces something testable before the next begins.
 
 **Goal:** One agent that can reason, use tools, and remember conversations.
 
+**Status: DONE** — Workspace file operations, conversation memory persistence, tool-call parsing, and the ReAct loop are implemented and their targeted tests pass.
+
 **Scaffolding status: DONE**
-**Implementation status: NOT STARTED**
+**Implementation status: DONE**
 
 ### Checklist
 
@@ -133,18 +135,18 @@ Each milestone produces something testable before the next begins.
 - [x] SQLite migration created (`priv/repo/migrations/...create_conversation_messages.exs`)
 - [x] `ToolCallParser` behaviour + `Llama3` parser + `ChatML` parser scaffolded (`tool_call_parser.ex`)
 - [x] `ReActLoop` scaffolded (`react_loop.ex` — 3 stubs, `tool_result_to_message/1` implemented)
-- [ ] `Tools.Workspace.safe_path/2` implemented
-- [ ] `Tools.Workspace` file operations implemented (`read_file`, `write_file`, `list_files`, `delete_file`)
-- [ ] `Tools.Workspace.call/1` dispatch implemented
-- [ ] `Memory.save_message/3` implemented
-- [ ] `Memory.load_history/3` implemented
-- [ ] `Memory.list_sessions/1`, `clear_session/2` implemented
-- [ ] `ToolCallParser.Llama3.parse/2` implemented
-- [ ] `ToolCallParser.ChatML.parse/2` implemented
-- [ ] `ReActLoop.run/5` implemented
-- [ ] `ReActLoop.step/4` implemented
-- [ ] `ReActLoop.format_tools_prompt/2` implemented
-- [ ] **Milestone 2 test passing:** Agent calls workspace tool, remembers prior turns
+- [x] `Tools.Workspace.safe_path/2` implemented
+- [x] `Tools.Workspace` file operations implemented (`read_file`, `write_file`, `list_files`, `delete_file`)
+- [x] `Tools.Workspace.call/1` dispatch implemented
+- [x] `Memory.save_message/3` implemented
+- [x] `Memory.load_history/3` implemented
+- [x] `Memory.list_sessions/1`, `clear_session/2` implemented
+- [x] `ToolCallParser.Llama3.parse/2` implemented
+- [x] `ToolCallParser.ChatML.parse/2` implemented
+- [x] `ReActLoop.run/5` implemented
+- [x] `ReActLoop.step/4` implemented
+- [x] `ReActLoop.format_tools_prompt/2` implemented
+- [x] **Milestone 2 test passing:** Agent calls workspace tool, remembers prior turns
 
 ### ReAct loop
 - The core loop: prompt model → parse tool calls from response → execute tool → feed result back → repeat until final answer
@@ -616,3 +618,5 @@ Run `designator-inator serve ./examples/assistant/` and add it to Claude Desktop
 | `ModelInventory.rescan/0` preserves the last known catalog on scan failure | Matches the documented `{:ok, count}` contract and avoids dropping the in-memory inventory due to a transient filesystem error | 2026-04-02 |
 | `Providers.LlamaCpp` uses app-configured seams for HTTP, Port opening, and kill commands in tests | Keeps the production code direct while allowing unit tests without a real llama-server process or live HTTP server | 2026-04-02 |
 | `ModelManager` uses app-configured provider module seams (`:model_manager_llama_provider`, `:model_manager_openai_provider`, `:model_manager_anthropic_provider`) | Enables deterministic unit tests for load/routing/fallback behavior without launching real provider backends | 2026-04-02 |
+| `parse_quantization/1` preserves original casing for unknown strings | `{:unknown, str}` uses the caller's original string, not the uppercased form used for matching | 2026-04-02 |
+| Auto-fallback (`:auto`) triggers immediately for load/capacity errors, after 3 consecutive errors for inference failures | Load errors are always fatal for that attempt; transient inference errors may self-correct, so 3 strikes avoids over-routing to cloud on flaky local hardware | 2026-04-02 |
