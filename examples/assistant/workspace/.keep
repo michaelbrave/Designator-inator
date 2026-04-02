@@ -1,0 +1,4 @@
+# Workspace
+
+This directory is the assistant pod's persistent workspace.
+Files written here survive pod restarts.

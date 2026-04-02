@@ -1,0 +1,40 @@
+name: assistant
+version: 1.0.0
+description: >
+  A general-purpose helpful assistant with access to its workspace.
+  Use it to take notes, draft documents, and answer questions.
+
+requires:
+  min_ram_mb: 4096
+  min_context: 8192
+  gpu: optional
+
+model:
+  primary: mistral-7b-instruct-v0.3.Q4_K_M
+  minimum: tinyllama-1.1b-chat-v1.0.Q4_K_M
+  fallback: claude-haiku
+  fallback_mode: disabled
+
+exposed_tools:
+  - name: chat
+    description: >
+      Send a message to the assistant and get a response.
+      The assistant remembers previous messages in the session.
+    parameters:
+      message:
+        type: string
+        required: true
+        description: The message to send to the assistant
+
+  - name: get_status
+    description: Check if the assistant is idle or processing a request.
+    parameters: {}
+
+  - name: halt
+    description: Cancel the current task and return the assistant to idle.
+    parameters: {}
+
+internal_tools:
+  - workspace
+
+isolation: beam
