@@ -72,7 +72,7 @@ defmodule DesignatorInator.MCP.TransportStdioTest do
           assert {:noreply, %{}} = Stdio.handle_info({:mcp_message, json}, %{})
         end)
 
-      assert output =~ ~s("method":"initialize") == false
+      refute output =~ ~s("method":"initialize")
       assert output =~ ~s("protocolVersion":"2024-11-05")
       assert output =~ ~s("serverInfo")
     end

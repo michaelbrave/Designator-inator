@@ -252,3 +252,39 @@ A code review pass found two spec deviations. Both are now fixed and all 32 Mile
 - [`designator_inator/lib/designator_inator/mcp/protocol.ex`](./designator_inator/lib/designator_inator/mcp/protocol.ex)
 - [`designator_inator/lib/designator_inator/mcp/transport/stdio.ex`](./designator_inator/lib/designator_inator/mcp/transport/stdio.ex)
 - [`designator_inator/test/designator_inator/mcp/transport_stdio_test.exs`](./designator_inator/test/designator_inator/mcp/transport_stdio_test.exs)
+
+## Test Audit + Fixes (2026-04-02)
+
+A full audit of all test files was performed to check for auto-pass patterns, skipped tests, mock abuse, and weak assertions. No critical issues (auto-pass, `@tag :skip`, hardcoded `:ok`) were found. Two issues were fixed and one coverage gap was filled.
+
+### Fix 1: Broken assertion idiom in stdio transport test
+
+**File:** `designator_inator/test/designator_inator/mcp/transport_stdio_test.exs:75`
+
+**Problem:** `assert output =~ ~s("method":"initialize") == false` — due to Elixir's left-to-right evaluation of same-precedence comparison operators, this parses as `(output =~ ...) == false`. It worked correctly at runtime but reads as if it were asserting the *presence* of the pattern.
+
+**Fix:** Changed to `refute output =~ ~s("method":"initialize")`.
+
+### Fix 2: Weak `inputSchema` assertion in protocol test
+
+**File:** `designator_inator/test/designator_inator/mcp/protocol_test.exs:103`
+
+**Problem:** `assert is_map(mcp_tool["inputSchema"])` accepted any map, including `%{}`. The source correctly builds `%{"type" => "object", "properties" => ...}` but a broken implementation returning an empty map would have passed.
+
+**Fix:** Replaced with `assert mcp_tool["inputSchema"]["type"] == "object"` and `assert is_map(mcp_tool["inputSchema"]["properties"])`.
+
+### New test: `tools_to_mcp` parameter conversion
+
+**File:** `designator_inator/test/designator_inator/mcp/protocol_test.exs`
+
+**Problem:** The existing test only called `tools_to_mcp` with `parameters: %{}` (empty), leaving the entire parameter-to-JSON-Schema conversion path in `protocol.ex` (lines 196–230) untested. That code handles `:type`, `:description`, `:enum`, `:required`, and `:default` fields.
+
+**Fix:** Added a second test case with real parameters that verifies type conversion, description, enum, and the `"required"` array in the output schema.
+
+**Result:** MCP tests now 18 tests, 0 failures (was 17).
+
+## Files Changed In This Session
+
+- [`note.md`](./note.md)
+- [`designator_inator/test/designator_inator/mcp/transport_stdio_test.exs`](./designator_inator/test/designator_inator/mcp/transport_stdio_test.exs)
+- [`designator_inator/test/designator_inator/mcp/protocol_test.exs`](./designator_inator/test/designator_inator/mcp/protocol_test.exs)

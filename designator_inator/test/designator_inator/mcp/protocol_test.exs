@@ -100,7 +100,33 @@ defmodule DesignatorInator.MCP.ProtocolTest do
       assert %{"tools" => [mcp_tool]} = result
       assert mcp_tool["name"] == "ping"
       assert mcp_tool["description"] == "Returns pong"
-      assert is_map(mcp_tool["inputSchema"])
+      assert mcp_tool["inputSchema"]["type"] == "object"
+      assert is_map(mcp_tool["inputSchema"]["properties"])
+    end
+
+    test "converts parameters to JSON Schema properties including required list" do
+      tools = [
+        %ToolDefinition{
+          name: "workspace",
+          description: "File ops",
+          parameters: %{
+            "action" => %{type: :string, required: true, description: "Op to perform", enum: ["read", "write"]},
+            "path" => %{type: :string, required: false, description: "File path"}
+          }
+        }
+      ]
+
+      result = Protocol.tools_to_mcp(tools)
+      assert %{"tools" => [mcp_tool]} = result
+      schema = mcp_tool["inputSchema"]
+
+      assert schema["type"] == "object"
+      assert schema["properties"]["action"]["type"] == "string"
+      assert schema["properties"]["action"]["description"] == "Op to perform"
+      assert schema["properties"]["action"]["enum"] == ["read", "write"]
+      assert schema["properties"]["path"]["type"] == "string"
+      assert schema["required"] == ["action"]
+      refute Map.has_key?(schema["properties"]["path"], "enum")
     end
   end
 
