@@ -105,7 +105,24 @@ defmodule DesignatorInator.MCPGateway do
   """
   @spec push_to_sse_connection(String.t(), MCPMessage.t()) :: :ok | {:error, :not_found}
   def push_to_sse_connection(connection_id, %MCPMessage{} = message) do
+    push_to_sse(connection_id, message)
+  end
+
+  @spec push_to_sse(String.t(), MCPMessage.t()) :: :ok | {:error, :not_found}
+  def push_to_sse(connection_id, message) do
     GenServer.call(__MODULE__, {:push_to_sse, connection_id, message})
+  end
+
+  @doc """
+  Refreshes any cached swarm-aware tool listings.
+
+  The gateway currently rebuilds tool listings on demand, so this is a no-op
+  hook that keeps the registry notification path explicit and testable.
+  """
+  @spec refresh_tools() :: :ok
+  def refresh_tools do
+    GenServer.cast(__MODULE__, :refresh_tools)
+    :ok
   end
 
   # ── GenServer callbacks ──────────────────────────────────────────────────────
@@ -194,6 +211,9 @@ defmodule DesignatorInator.MCPGateway do
         {:reply, :ok, state}
     end
   end
+
+  @impl GenServer
+  def handle_cast(:refresh_tools, state), do: {:noreply, state}
 
   defp maybe_namespace_tool(definition, pod_name, :multi) do
     %{definition | name: pod_name <> @namespace_separator <> definition.name}

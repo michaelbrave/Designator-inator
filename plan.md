@@ -388,24 +388,26 @@ model:
 
 **Goal:** A meta-agent that decomposes tasks and delegates to other pods.
 
-**Status: DONE** — Orchestrator delegation now uses parallel tool execution, persisted conversation history, and alternate-pod retry when a delegated pod fails.
+**Status: IN PROGRESS** — SwarmRegistry and node monitoring are in place; the remaining Milestone 7 work is cross-node routing from the orchestrator based on loaded-model awareness.
 **Scaffolding status: DONE**
-**Implementation status: DONE**
+**Implementation status: IN PROGRESS**
 
 ### Checklist
 
-- [x] `ToolRegistry` scaffolded (`tool_registry.ex` — 6 stubs, ETS design documented)
-- [x] `ToolRegistry` ETS table creation implemented
-- [x] `ToolRegistry.register/3`, `deregister/1` implemented
-- [x] `ToolRegistry.lookup/1`, `list_all/0`, `tools_for_pod/1` implemented (direct ETS reads)
-- [x] Orchestrator pod created (`examples/orchestrator/` — `manifest.yaml`, `soul.md`, `config.yaml`)
-- [x] `Pod` wires `ToolRegistry.register/3` call into `init/1`
-- [x] `Pod` wires `ToolRegistry.deregister/1` call into `terminate/2`
-- [x] `Pod` can expose other pods as namespaced tools when `internal_tools` includes `"pods"`
-- [x] Async parallel task delegation implemented in orchestrator's `chat` handler
-- [x] Task graph persistence to SQLite implemented via persisted conversation/tool history in `Memory.Repo`
-- [x] Error recovery (retry alternate pod, fallback to self) implemented
-- [x] **Milestone 6 test passing:** orchestrator delegates to multiple pods, recovers from pod crash
+- [x] `SwarmRegistry` scaffolded (`swarm_registry.ex` — 8 stubs, `:pg` design documented)
+- [x] `NodeInfo` data type defined (`types.ex`)
+- [x] `ModelManager.node_info/0` stub scaffolded
+- [x] `SwarmRegistry.init/1` implemented (`:pg` scope start, node monitoring)
+- [x] `SwarmRegistry.find_pod/1` implemented (local preference)
+- [x] `SwarmRegistry.list_all/0`, `list_on_node/1` implemented
+- [x] `SwarmRegistry.connect/1` implemented
+- [x] `SwarmRegistry.handle_info {:nodeup, ...}` implemented
+- [x] `SwarmRegistry.handle_info {:nodedown, ...}` implemented (cleanup + notify MCPGateway)
+- [x] `SwarmRegistry.node_infos/0` implemented
+- [x] `ModelManager.node_info/0` implemented (builds `NodeInfo` from current state)
+- [ ] Cross-node routing in orchestrator (prefer node with model already loaded)
+- [x] `CLI.cmd_connect/1` implemented
+- [x] **Milestone 7 core test passing:** registry lookups, node monitoring, and CLI connect tests green
 
 ### ToolRegistry
 - ETS-backed registry (fast reads, in-memory)

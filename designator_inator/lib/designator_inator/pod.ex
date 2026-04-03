@@ -424,7 +424,10 @@ defmodule DesignatorInator.Pod do
   defp registry_ready?(_module), do: true
 
   defp tool_registry_module do
-    Application.get_env(:designator_inator, :tool_registry_module, ToolRegistry)
+    case Application.get_env(:designator_inator, :tool_registry_module) do
+      nil -> ToolRegistry
+      module -> module
+    end
   end
 
   defp namespace_tool_name(pod_name, tool_name), do: "#{pod_name}#{@namespace_separator}#{tool_name}"

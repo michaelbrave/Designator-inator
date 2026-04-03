@@ -57,6 +57,41 @@ defmodule DesignatorInator.SwarmRegistry do
 
   @pg_scope :designator_inator_swarm
 
+  defp node_module do
+    Application.get_env(:designator_inator, :swarm_registry_node_module, Node)
+  end
+
+  defp rpc_module do
+    Application.get_env(:designator_inator, :swarm_registry_rpc_module, :rpc)
+  end
+
+  defp model_manager_module do
+    Application.get_env(:designator_inator, :swarm_registry_model_manager_module, DesignatorInator.ModelManager)
+  end
+
+  defp gateway_module do
+    Application.get_env(:designator_inator, :swarm_registry_gateway_module, DesignatorInator.MCPGateway)
+  end
+
+  defp self_node_info do
+    fallback = %NodeInfo{node: node(), hostname: hostname(), updated_at: DateTime.utc_now()}
+
+    try do
+      model_manager_module().node_info()
+    rescue
+      _ -> fallback
+    catch
+      :exit, _ -> fallback
+    end
+  end
+
+  defp hostname do
+    case :inet.gethostname() do
+      {:ok, name} -> to_string(name)
+      _ -> "unknown"
+    end
+  end
+
   # ── Public API ──────────────────────────────────────────────────────────────
 
   def start_link(opts \\ []) do
@@ -113,12 +148,14 @@ defmodule DesignatorInator.SwarmRegistry do
   """
   @spec find_pod(String.t()) :: {:ok, {pid(), node()}} | {:error, :not_found}
   def find_pod(pod_name) do
-    # Template (HTDP step 4):
-    # 1. :pg.get_members(@pg_scope, {:pods, pod_name}) → list of pids
-    # 2. If empty: {:error, :not_found}
-    # 3. Prefer local pids (node(pid) == node()): pick first local, or first remote
-    # 4. Return {:ok, {pid, node(pid)}}
-    raise "not implemented"
+    case :pg.get_members(@pg_scope, {:pods, pod_name}) do
+      [] ->
+        {:error, :not_found}
+
+      members ->
+        pid = Enum.find(members, &(node(&1) == node())) || hd(members)
+        {:ok, {pid, node(pid)}}
+    end
   end
 
   @doc """
@@ -134,10 +171,16 @@ defmodule DesignatorInator.SwarmRegistry do
   """
   @spec list_all() :: [%{name: String.t(), pid: pid(), node: node()}]
   def list_all do
-    # Template (HTDP step 4):
-    # 1. :pg.which_groups(@pg_scope) → [{:pods, name}, ...]
-    # 2. For each group {:pods, name}: get_members and build result maps
-    raise "not implemented"
+    @pg_scope
+    |> :pg.which_groups()
+    |> Enum.flat_map(fn
+      {:pods, pod_name} ->
+        :pg.get_members(@pg_scope, {:pods, pod_name})
+        |> Enum.map(fn pid -> %{name: pod_name, pid: pid, node: node(pid)} end)
+
+      _other ->
+        []
+    end)
   end
 
   @doc """
@@ -150,8 +193,9 @@ defmodule DesignatorInator.SwarmRegistry do
   """
   @spec list_on_node(node()) :: [%{name: String.t(), pid: pid()}]
   def list_on_node(node_name) do
-    # Template: filter list_all() to entries where node == node_name
-    raise "not implemented"
+    list_all()
+    |> Enum.filter(&(&1.node == node_name))
+    |> Enum.map(fn %{name: name, pid: pid} -> %{name: name, pid: pid} end)
   end
 
   @doc """
@@ -169,12 +213,14 @@ defmodule DesignatorInator.SwarmRegistry do
   """
   @spec connect(String.t()) :: {:ok, node()} | {:error, :connect_failed}
   def connect(ip_or_hostname) do
-    # Template:
-    # 1. Build node name: :"designator_inator@#{ip_or_hostname}"
-    # 2. Node.connect(node_name) → true | false | :ignored
-    # 3. true: {:ok, node_name}
-    # 4. false: {:error, :connect_failed}
-    raise "not implemented"
+    node_name = String.to_atom("designator_inator@#{ip_or_hostname}")
+
+    case node_module().connect(node_name) do
+      true -> {:ok, node_name}
+      :ignored -> {:ok, node_name}
+      false -> {:error, :connect_failed}
+      _ -> {:error, :connect_failed}
+    end
   end
 
   @doc """
@@ -199,35 +245,52 @@ defmodule DesignatorInator.SwarmRegistry do
 
   @impl GenServer
   def init(_opts) do
-    # Template:
-    # 1. :pg.start_link(@pg_scope) — start the scope (idempotent if already started)
-    # 2. Node.monitor_nodes(true) — subscribe to nodeup/nodedown events
-    # 3. Return {:ok, %{node_infos: %{}}}
-    raise "not implemented"
+    case :pg.start_link(@pg_scope) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, _reason} -> :ok
+    end
+
+    :net_kernel.monitor_nodes(true)
+
+    state = %{node_infos: %{node() => self_node_info()}}
+    {:ok, state}
   end
 
   @impl GenServer
   def handle_info({:nodeup, node}, state) do
-    # Template:
-    # 1. Log the new node
-    # 2. Request NodeInfo from the new node's ModelManager
-    # 3. Store in state.node_infos
-    raise "not implemented"
+    Logger.info("SwarmRegistry node up: #{inspect(node)}")
+
+    case fetch_node_info(node) do
+      {:ok, node_info} ->
+        {:noreply, put_in(state.node_infos[node], node_info)}
+
+      {:error, reason} ->
+        Logger.warning("Unable to fetch node info for #{inspect(node)}: #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   @impl GenServer
   def handle_info({:nodedown, node}, state) do
-    # Template:
-    # 1. Log the lost node
-    # 2. Remove from state.node_infos
-    # 3. :pg will automatically clean up the dead node's group memberships
-    # 4. Notify MCPGateway to refresh its tool list
-    raise "not implemented"
+    Logger.warning("SwarmRegistry node down: #{inspect(node)}")
+    gateway_module().refresh_tools()
+    {:noreply, update_in(state.node_infos, &Map.delete(&1, node))}
   end
 
   @impl GenServer
   def handle_call(:node_infos, _from, state) do
-    # Template: {:reply, Map.values(state.node_infos), state}
-    raise "not implemented"
+    {:reply, Map.values(state.node_infos), state}
+  end
+
+  defp fetch_node_info(node) do
+    if node == node() do
+      {:ok, self_node_info()}
+    else
+      case rpc_module().call(node, model_manager_module(), :node_info, []) do
+        %NodeInfo{} = info -> {:ok, info}
+        other -> {:error, other}
+      end
+    end
   end
 end
