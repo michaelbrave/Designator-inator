@@ -31,10 +31,10 @@ defmodule DesignatorInator.Providers.AnthropicTest do
 
   describe "model_id/1" do
     test "maps short names to current API model IDs" do
-      assert Anthropic.model_id("claude-opus") == "claude-opus-4-5"
-      assert Anthropic.model_id("claude-sonnet") == "claude-sonnet-4-5"
+      assert Anthropic.model_id("claude-opus") == "claude-opus-4-6"
+      assert Anthropic.model_id("claude-sonnet") == "claude-sonnet-4-6"
       assert Anthropic.model_id("claude-haiku") == "claude-haiku-4-5-20251001"
-      assert Anthropic.model_id("claude-opus-4-5") == "claude-opus-4-5"
+      assert Anthropic.model_id("claude-opus-4-6") == "claude-opus-4-6"
     end
   end
 
@@ -86,7 +86,7 @@ defmodule DesignatorInator.Providers.AnthropicTest do
       assert headers = Keyword.get(call, :headers)
       assert Keyword.get(call, :receive_timeout) > 0
 
-      assert body["model"] == "claude-sonnet-4-5"
+      assert body["model"] == "claude-sonnet-4-6"
       assert body["system"] == "You are helpful."
       assert body["max_tokens"] == 64
       assert body["temperature"] == 0.2

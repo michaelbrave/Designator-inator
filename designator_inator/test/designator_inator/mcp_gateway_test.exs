@@ -89,4 +89,22 @@ defmodule DesignatorInator.MCPGatewayTest do
 
     assert %MCPMessage{error: %{code: -32601, message: "Pod not found"}} = response
   end
+
+  test "push_to_sse_connection/2 calls the registered send_fn with the message" do
+    test_pid = self()
+    send_fn = fn message -> send(test_pid, {:sse_event, message}) end
+    connection_id = "test-connection-123"
+
+    :ok = MCPGateway.register_sse_connection(connection_id, send_fn)
+
+    message = %MCPMessage{jsonrpc: "2.0", id: 42, result: %{"tools" => []}}
+    assert :ok = MCPGateway.push_to_sse_connection(connection_id, message)
+
+    assert_receive {:sse_event, ^message}
+  end
+
+  test "push_to_sse_connection/2 returns error for unknown connection" do
+    message = %MCPMessage{jsonrpc: "2.0", id: 1, result: %{}}
+    assert {:error, :not_found} = MCPGateway.push_to_sse_connection("no-such-conn", message)
+  end
 end

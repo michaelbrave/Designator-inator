@@ -95,6 +95,19 @@ defmodule DesignatorInator.MCPGateway do
     GenServer.call(__MODULE__, {:deregister_sse, connection_id})
   end
 
+  @doc """
+  Pushes an MCP response message to a registered SSE connection.
+
+  Called by the SSE transport after getting a response from `handle_request/1`,
+  so it can be streamed back to the client over the open SSE connection.
+
+  Returns `{:error, :not_found}` if the connection has already disconnected.
+  """
+  @spec push_to_sse_connection(String.t(), MCPMessage.t()) :: :ok | {:error, :not_found}
+  def push_to_sse_connection(connection_id, %MCPMessage{} = message) do
+    GenServer.call(__MODULE__, {:push_to_sse, connection_id, message})
+  end
+
   # ── GenServer callbacks ──────────────────────────────────────────────────────
 
   @impl GenServer
@@ -168,6 +181,18 @@ defmodule DesignatorInator.MCPGateway do
   @impl GenServer
   def handle_call({:deregister_sse, conn_id}, _from, state) do
     {:reply, :ok, update_in(state.sse_connections, &Map.delete(&1, conn_id))}
+  end
+
+  @impl GenServer
+  def handle_call({:push_to_sse, connection_id, message}, _from, state) do
+    case Map.get(state.sse_connections, connection_id) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      send_fn ->
+        send_fn.(message)
+        {:reply, :ok, state}
+    end
   end
 
   defp maybe_namespace_tool(definition, pod_name, :multi) do

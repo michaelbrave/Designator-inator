@@ -24,15 +24,16 @@
 - `DesignatorInator.ToolRegistry`
 - `DesignatorInator.MCPGateway`
 - `DesignatorInator.CLI.cmd_serve/2` stdio wiring
-- `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch basics
-- Milestone 4 is complete and verified.
-- Milestone 5 is complete and verified.
+- `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch + response routing
+- Milestone 4 is complete, verified, and audited.
+- Milestone 5 is complete, verified, and audited.
 - Implemented / verified:
   - `Providers.Anthropic.complete/2`, `model_id/1`, and `messages_to_anthropic/1`
   - `Providers.OpenAI.complete/2`
   - `ModelManager` auto-fallback routing for `fallback_mode: auto`
   - provider and routing tests for Anthropic/OpenAI + ModelManager
-- Current targeted provider/model-manager tests pass: 24 tests, 0 failures.
+  - `MCPGateway.push_to_sse_connection/2` (SSE response routing — was a critical bug)
+- Current targeted provider/model-manager/MCP tests pass: 52 tests, 0 failures.
 - Next work is Milestone 6 orchestration / orchestrator pod delegation.
 
 ## Toolchain / Environment
@@ -297,3 +298,72 @@ A full audit of all test files was performed to check for auto-pass patterns, sk
 - [`note.md`](./note.md)
 - [`designator_inator/test/designator_inator/mcp/transport_stdio_test.exs`](./designator_inator/test/designator_inator/mcp/transport_stdio_test.exs)
 - [`designator_inator/test/designator_inator/mcp/protocol_test.exs`](./designator_inator/test/designator_inator/mcp/protocol_test.exs)
+
+## Milestone 4 & 5 Audit + Fixes (2026-04-03)
+
+A full audit of milestone 4 (MCP Server Interface) and milestone 5 (Cloud Provider Integration) was performed. Three bugs were found and fixed.
+
+### Fix 1: SSE transport silently dropped all gateway responses (critical)
+
+**Files:**
+- `designator_inator/lib/designator_inator/mcp_gateway.ex`
+- `designator_inator/lib/designator_inator/mcp/transport/sse.ex`
+- `designator_inator/test/designator_inator/mcp/transport_sse_test.exs`
+- `designator_inator/test/designator_inator/mcp_gateway_test.exs`
+
+**Problem:** Both clauses of `maybe_dispatch_to_gateway/2` in `sse.ex` called `MCPGateway.handle_request/1` but discarded the return value. The SSE stream (running in `stream_loop`) never received any responses. The architecture requires the POST handler to push the response back over the open SSE connection using the registered `send_fn`, but nothing did this.
+
+The existing test only asserted the gateway was called, not that any response was sent back.
+
+**Fix:**
+- Added `MCPGateway.push_to_sse_connection/2` public API and its `handle_call({:push_to_sse, ...})` handler, which looks up the stored `send_fn` for a connection and calls it.
+- Fixed the non-nil `maybe_dispatch_to_gateway/2` clause to call `push_to_sse_connection/2` with the response.
+- Added `push_to_sse_connection/2` to the `GatewayStub` in the SSE test.
+- Added two new tests: one in the SSE transport test verifying the push-back, one in the gateway test verifying `push_to_sse_connection/2` directly.
+
+### Fix 2: `stream_loop` crashed on client disconnect instead of deregistering
+
+**File:** `designator_inator/lib/designator_inator/mcp/transport/sse.ex`
+
+**Problem:** All three `chunk/2` call sites used the irrefutable match `{:ok, conn} = chunk(...)`. When an SSE client disconnects, `chunk/2` returns `{:error, reason}`, which would crash the process and leave a stale entry in `MCPGateway.sse_connections` permanently.
+
+**Fix:** Replaced the irrefutable matches with case expressions that call `gateway_module().deregister_sse_connection(connection_id)` on error, then return cleanly.
+
+### Fix 3: Anthropic model IDs one generation behind (false-passing tests)
+
+**Files:**
+- `designator_inator/lib/designator_inator/providers/anthropic.ex`
+- `designator_inator/test/designator_inator/providers/anthropic_test.exs`
+
+**Problem:** `Providers.Anthropic.model_id/1` mapped `"claude-sonnet"` → `"claude-sonnet-4-5"` and `"claude-opus"` → `"claude-opus-4-5"`. The current latest is `4-6`. The tests passed because they asserted the outdated IDs rather than the correct ones.
+
+**Fix:** Updated `model_id/1` to map to `"claude-sonnet-4-6"` and `"claude-opus-4-6"`. Updated test assertions to match. Haiku remains `"claude-haiku-4-5-20251001"` (no 4.6 version exists yet).
+
+**Result:** 52 tests, 0 failures (was 49 — 3 new tests added).
+
+## Recommended Next Step
+
+Milestone 6 — Orchestration. Start from `plan.md` Milestone 6 section. Key work:
+- `DesignatorInator.Orchestrator` — meta-agent that decomposes tasks and delegates to other pods
+- `Pod.delegate/3` — pod-to-pod tool delegation via MCPGateway
+- `DesignatorInator.SwarmRegistry` stubs need real implementations
+
+Keep these targeted tests green while adding Milestone 6 coverage:
+
+```bash
+cd /home/mike/projects/Designator-inator/designator_inator
+mix test test/designator_inator/mcp/ \
+         test/designator_inator/mcp_gateway_test.exs \
+         test/designator_inator/providers/ \
+         test/designator_inator/model_manager_test.exs
+```
+
+## Files Changed In This Session (2026-04-03)
+
+- [`note.md`](./note.md)
+- [`designator_inator/lib/designator_inator/mcp_gateway.ex`](./designator_inator/lib/designator_inator/mcp_gateway.ex)
+- [`designator_inator/lib/designator_inator/mcp/transport/sse.ex`](./designator_inator/lib/designator_inator/mcp/transport/sse.ex)
+- [`designator_inator/lib/designator_inator/providers/anthropic.ex`](./designator_inator/lib/designator_inator/providers/anthropic.ex)
+- [`designator_inator/test/designator_inator/mcp/transport_sse_test.exs`](./designator_inator/test/designator_inator/mcp/transport_sse_test.exs)
+- [`designator_inator/test/designator_inator/mcp_gateway_test.exs`](./designator_inator/test/designator_inator/mcp_gateway_test.exs)
+- [`designator_inator/test/designator_inator/providers/anthropic_test.exs`](./designator_inator/test/designator_inator/providers/anthropic_test.exs)

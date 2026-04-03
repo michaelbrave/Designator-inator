@@ -13,6 +13,11 @@ defmodule DesignatorInator.MCP.TransportSseTest do
       DesignatorInator.MCP.Protocol.make_response(msg.id, %{"ok" => true})
     end
 
+    def push_to_sse_connection(connection_id, %MCPMessage{} = response) do
+      send(test_pid(), {:sse_push, connection_id, response})
+      :ok
+    end
+
     defp test_pid do
       Application.fetch_env!(:designator_inator, :mcp_test_pid)
     end
@@ -65,6 +70,19 @@ defmodule DesignatorInator.MCP.TransportSseTest do
 
     assert conn.status == 202
     assert_receive {:gateway_called, %MCPMessage{id: 1, method: "tools/list"}}
+  end
+
+  test "POST /message pushes the gateway response back to the SSE connection" do
+    body = ~s({"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}})
+
+    conn =
+      conn(:post, "/message?conn=my-conn", body)
+      |> put_req_header("authorization", "Bearer secret-token")
+      |> put_req_header("content-type", "application/json")
+
+    SSE.call(conn, [])
+
+    assert_receive {:sse_push, "my-conn", %MCPMessage{id: 5, result: %{"ok" => true}}}
   end
 
   defp restore_env(key, value) do

@@ -71,8 +71,8 @@ defmodule DesignatorInator.Providers.Anthropic do
   @spec model_id(String.t()) :: String.t()
   def model_id(short_name) do
     case short_name do
-      "claude-opus" -> "claude-opus-4-5"
-      "claude-sonnet" -> "claude-sonnet-4-5"
+      "claude-opus" -> "claude-opus-4-6"
+      "claude-sonnet" -> "claude-sonnet-4-6"
       "claude-haiku" -> "claude-haiku-4-5-20251001"
       other -> other
     end

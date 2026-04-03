@@ -180,9 +180,15 @@ defmodule DesignatorInator.MCP.Transport.SSE do
     :ok
   end
 
-  defp maybe_dispatch_to_gateway(%MCPMessage{} = message, _connection_id) do
-    _ = gateway_module().handle_request(message)
-    :ok
+  defp maybe_dispatch_to_gateway(%MCPMessage{} = message, connection_id) do
+    case gateway_module().handle_request(message) do
+      %MCPMessage{} = response ->
+        _ = gateway_module().push_to_sse_connection(connection_id, response)
+        :ok
+
+      nil ->
+        :ok
+    end
   end
 
   defp sse_event(event, data) do
@@ -194,8 +200,10 @@ defmodule DesignatorInator.MCP.Transport.SSE do
       {:send_event, %MCPMessage{} = message} ->
         case Protocol.encode_message(message) do
           {:ok, json} ->
-            {:ok, conn} = chunk(conn, sse_event("message", json))
-            stream_loop(conn, connection_id)
+            case chunk(conn, sse_event("message", json)) do
+              {:ok, conn} -> stream_loop(conn, connection_id)
+              {:error, _} -> gateway_module().deregister_sse_connection(connection_id)
+            end
 
           {:error, reason} ->
             Logger.warning("Failed to encode SSE message for #{connection_id}: #{inspect(reason)}")
@@ -203,12 +211,16 @@ defmodule DesignatorInator.MCP.Transport.SSE do
         end
 
       {:send_event, event} when is_binary(event) ->
-        {:ok, conn} = chunk(conn, sse_event("message", event))
-        stream_loop(conn, connection_id)
+        case chunk(conn, sse_event("message", event)) do
+          {:ok, conn} -> stream_loop(conn, connection_id)
+          {:error, _} -> gateway_module().deregister_sse_connection(connection_id)
+        end
 
       {:send_event, event} ->
-        {:ok, conn} = chunk(conn, sse_event("message", inspect(event)))
-        stream_loop(conn, connection_id)
+        case chunk(conn, sse_event("message", inspect(event))) do
+          {:ok, conn} -> stream_loop(conn, connection_id)
+          {:error, _} -> gateway_module().deregister_sse_connection(connection_id)
+        end
     after
       15_000 ->
         stream_loop(conn, connection_id)
