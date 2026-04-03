@@ -43,7 +43,7 @@ defmodule DesignatorInator.Providers.LlamaCpp do
 
   require Logger
 
-  alias DesignatorInator.Types.{Model, Message}
+  alias DesignatorInator.Types.Message
 
   @health_check_interval_ms 500
   @health_check_max_attempts 20

@@ -259,7 +259,7 @@ defmodule DesignatorInator.ReActLoop do
               timeout: 120_000
             )
             |> Enum.map(fn
-              {:ok, {call, %ToolResult{} = result}} ->
+              {:ok, {_call, %ToolResult{} = result}} ->
                 tool_result_to_message(result)
 
               {:ok, {_call, %Message{} = message}} ->

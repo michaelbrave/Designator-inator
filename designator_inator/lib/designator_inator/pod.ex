@@ -196,10 +196,8 @@ defmodule DesignatorInator.Pod do
     config =
       case Keyword.get(opts, :config) do
         nil ->
-          case Config.load(Path.join(path, "config.yaml")) do
-            {:ok, loaded} -> loaded
-            {:error, _} -> %Config{}
-          end
+          {:ok, loaded} = Config.load(Path.join(path, "config.yaml"))
+          loaded
 
         loaded ->
           loaded

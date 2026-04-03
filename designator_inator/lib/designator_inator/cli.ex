@@ -375,6 +375,7 @@ defmodule DesignatorInator.CLI do
     designator-inator — Designator-inator agent orchestration CLI
 
     Usage:
+      designator-inator quickstart                         First-time setup wizard
       designator-inator run <pod-path> [--detach] [--session <id>]
       designator-inator serve <pod-path> [--port <n>]
       designator-inator list
@@ -384,10 +385,260 @@ defmodule DesignatorInator.CLI do
       designator-inator connect <ip>
 
     Examples:
+      designator-inator quickstart
       designator-inator run ./examples/assistant/
       designator-inator serve ./examples/code-reviewer/ --port 4000
       designator-inator models
     """)
+  end
+
+  @doc """
+  `designator-inator quickstart`
+
+  Interactive first-time setup wizard. Configures llama-server path, models
+  directory, VRAM budget, and optional cloud provider keys. Saves settings to
+  `~/.designator_inator/config.yaml` and creates the required directories.
+
+  ## Examples
+
+      $ designator-inator quickstart
+      ================================================
+         Designator-inator  -  First-Time Setup
+      ================================================
+      ...
+  """
+  @spec cmd_quickstart() :: :ok | {:error, term()}
+  def cmd_quickstart do
+    home = Path.expand("~/.designator_inator")
+    config_path = Path.join(home, "config.yaml")
+
+    qs_banner()
+    IO.puts("This wizard configures Designator-inator for first-time use.")
+    IO.puts("Settings are saved to: #{config_path}")
+    IO.puts("Press Enter to accept defaults shown in [brackets].\n")
+
+    # Step 1: llama-server
+    qs_section("Step 1 of 6: llama-server binary")
+    llama_server = qs_detect_llama_server()
+
+    # Step 2: Models directory
+    qs_section("Step 2 of 6: Models directory")
+    IO.puts("  Where should Designator-inator look for GGUF model files?")
+    default_models = Path.join(home, "models")
+    models_dir = qs_prompt("  Models directory", default_models) |> Path.expand()
+
+    # Step 3: VRAM / RAM budget
+    qs_section("Step 3 of 6: VRAM / RAM budget")
+    IO.puts("  How many MB of VRAM or RAM should Designator-inator use for local models?")
+    IO.puts("  Tip: for CPU-only setups, use about 70% of your available RAM.")
+    vram_mb = qs_prompt_integer("  Budget (MB)", 8192)
+
+    # Step 4: Cloud providers
+    qs_section("Step 4 of 6: Cloud providers (optional)")
+    IO.puts("  Pods can fall back to cloud models when local resources are full.")
+    IO.puts("  API keys are read from environment variables at runtime — never stored in files.\n")
+    anthropic = qs_prompt_yes_no("  Enable Anthropic (Claude) fallback?", false)
+    openai    = qs_prompt_yes_no("  Enable OpenAI fallback?", false)
+
+    # Step 5: Create directories
+    qs_section("Step 5 of 6: Creating directories")
+    dirs = [home, models_dir, Path.join(home, "workspaces")]
+    Enum.each(dirs, fn dir ->
+      case File.mkdir_p(dir) do
+        :ok              -> IO.puts("  [ok] #{dir}")
+        {:error, reason} -> IO.puts("  [!!] #{dir} — #{inspect(reason)}")
+      end
+    end)
+
+    # Step 6: Write config file
+    qs_section("Step 6 of 6: Saving configuration")
+    providers = []
+    providers = if anthropic, do: [:anthropic | providers], else: providers
+    providers = if openai,    do: [:openai    | providers], else: providers
+    yaml = qs_build_config_yaml(llama_server, models_dir, vram_mb, providers)
+
+    case File.write(config_path, yaml) do
+      :ok              -> IO.puts("  [ok] Saved: #{config_path}")
+      {:error, reason} -> IO.puts("  [!!] Could not save config: #{inspect(reason)}")
+    end
+
+    # Database setup
+    IO.puts("\n  Setting up conversation memory database...")
+    qs_run_db_setup()
+
+    # Summary
+    IO.puts("""
+
+    ================================================
+      Setup complete!
+    ================================================
+
+    Next steps:
+
+      1. Add GGUF model files to:
+           #{models_dir}
+         (Search for GGUF models on huggingface.co)
+
+      2. Start a pod in interactive chat mode:
+           designator-inator run ./examples/assistant/
+
+      3. Expose a pod to Claude Desktop / Cursor:
+           designator-inator serve ./examples/assistant/
+         Then add to your MCP client config:
+           {
+             "mcpServers": {
+               "assistant": {
+                 "command": "designator-inator",
+                 "args": ["serve", "./examples/assistant/"]
+               }
+             }
+           }
+
+      4. List available models at any time:
+           designator-inator models
+    """)
+
+    if anthropic do
+      IO.puts("  Note: set ANTHROPIC_API_KEY in your shell to enable Anthropic fallback.")
+    end
+
+    if openai do
+      IO.puts("  Note: set OPENAI_API_KEY in your shell to enable OpenAI fallback.")
+    end
+
+    :ok
+  end
+
+  # ── Quickstart helpers ────────────────────────────────────────────────────────
+
+  defp qs_banner do
+    IO.puts("""
+    ================================================
+       Designator-inator  -  First-Time Setup
+    ================================================
+    """)
+  end
+
+  defp qs_section(title) do
+    IO.puts("\n--- #{title} ---")
+  end
+
+  defp qs_prompt(label, default) do
+    IO.write("#{label} [#{default}]: ")
+    case IO.gets("") do
+      :eof  -> default
+      input ->
+        trimmed = String.trim(input)
+        if trimmed == "", do: default, else: trimmed
+    end
+  end
+
+  defp qs_prompt_integer(label, default) do
+    IO.write("#{label} [#{default}]: ")
+    case IO.gets("") do
+      :eof  -> default
+      input ->
+        trimmed = String.trim(input)
+        if trimmed == "" do
+          default
+        else
+          case Integer.parse(trimmed) do
+            {n, ""} when n > 0 -> n
+            _ ->
+              IO.puts("  Invalid number — using default: #{default}")
+              default
+          end
+        end
+    end
+  end
+
+  defp qs_prompt_yes_no(label, default) do
+    hint = if default, do: "Y/n", else: "y/N"
+    IO.write("#{label} [#{hint}]: ")
+    case IO.gets("") do
+      :eof  -> default
+      input ->
+        case input |> String.trim() |> String.downcase() do
+          ""    -> default
+          "y"   -> true
+          "yes" -> true
+          "n"   -> false
+          "no"  -> false
+          _     -> default
+        end
+    end
+  end
+
+  defp qs_detect_llama_server do
+    current = Application.get_env(:designator_inator, :llama_server_bin, "llama-server")
+    resolved = System.find_executable(current)
+
+    if resolved do
+      IO.puts("  Found: #{resolved}")
+      resolved
+    else
+      IO.puts("  llama-server not found on PATH.")
+      IO.puts("  You can install it via Homebrew:  brew install llama.cpp")
+      IO.puts("  Or download from:  https://github.com/ggerganov/llama.cpp/releases")
+      IO.puts("  Leave blank to configure later.\n")
+      qs_prompt("  Path to llama-server", "llama-server")
+    end
+  end
+
+  defp qs_run_db_setup do
+    priv_path = :code.priv_dir(:designator_inator)
+    migrations_path = Path.join(priv_path, "repo/migrations")
+
+    if File.dir?(migrations_path) do
+      results = Ecto.Migrator.run(DesignatorInator.Memory.Repo, migrations_path, :up, all: true)
+      IO.puts("  [ok] Database ready (#{length(results)} migration(s) applied)")
+    else
+      IO.puts("  [ok] Database ready")
+    end
+  rescue
+    e ->
+      IO.puts("  [!!] DB setup skipped: #{Exception.message(e)}")
+      IO.puts("       Run `mix ecto.setup` in the project directory to set up the database.")
+  end
+
+  defp qs_build_config_yaml(llama_server, models_dir, vram_mb, providers) do
+    workspaces_dir = Path.expand("~/.designator_inator/workspaces")
+
+    providers_yaml =
+      if providers == [] do
+        """
+        # To enable cloud fallback, uncomment and configure providers below:
+        # providers:
+        #   anthropic:
+        #     api_key_env: ANTHROPIC_API_KEY
+        #   openai:
+        #     api_key_env: OPENAI_API_KEY
+        """
+      else
+        provider_lines =
+          Enum.map_join(providers, "\n", fn
+            :anthropic -> "  anthropic:\n    api_key_env: ANTHROPIC_API_KEY"
+            :openai    -> "  openai:\n    api_key_env: OPENAI_API_KEY"
+          end)
+
+        "providers:\n#{provider_lines}\n"
+      end
+
+    """
+    # Designator-inator global configuration
+    # Generated by: designator-inator quickstart
+    #
+    # This file is read at startup. Edit it to change settings.
+    # API keys are NEVER stored here — only environment variable names.
+
+    system:
+      llama_server: #{llama_server}
+      models_dir: #{models_dir}
+      workspaces_dir: #{workspaces_dir}
+      vram_budget_mb: #{vram_mb}
+
+    #{providers_yaml}
+    """
   end
 
   defp parse_main_args(args) do
@@ -418,6 +669,7 @@ defmodule DesignatorInator.CLI do
   defp dispatch_command("stop", args, _flags), do: cmd_stop(args)
   defp dispatch_command("models", _args, _flags), do: cmd_models()
   defp dispatch_command("connect", args, _flags), do: cmd_connect(args)
+  defp dispatch_command("quickstart", _args, _flags), do: cmd_quickstart()
 
   defp dispatch_command(_unknown, _args, _flags) do
     print_usage()

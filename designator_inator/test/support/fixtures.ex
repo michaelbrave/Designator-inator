@@ -7,7 +7,7 @@ defmodule DesignatorInator.Test.Fixtures do
   """
 
   alias DesignatorInator.Types.{
-    Model, LoadedModel, Message, ToolCall, ToolResult,
+    Model, Message, ToolCall,
     ToolDefinition, PodManifest, PodState,
     ResourceRequirements, ModelPreference
   }

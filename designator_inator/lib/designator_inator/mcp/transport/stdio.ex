@@ -128,7 +128,7 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
       iex> DesignatorInator.MCP.Transport.Stdio.read_message()
       :eof
   """
-  @spec read_message() :: {:ok, String.t()} | :eof | {:error, term()}
+  @spec read_message() :: {:ok, String.t()} | :eof
   def read_message do
     # Template:
     # IO.gets("") returns a string with a trailing newline, or :eof
@@ -177,10 +177,6 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
       :eof ->
         send(parent_pid, :eof)
         exit(:normal)
-
-      {:error, reason} ->
-        Logger.warning("MCP stdio read error: #{inspect(reason)}")
-        read_loop(parent_pid)
     end
   end
 end
