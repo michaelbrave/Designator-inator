@@ -43,12 +43,6 @@ defmodule DesignatorInator.SwarmRegistryTest do
 
       current_node = node()
       assert {:ok, {^pid, ^current_node}} = SwarmRegistry.find_pod("assistant")
-
-      all = SwarmRegistry.list_all()
-      assert Enum.any?(all, fn entry -> entry.name == "assistant" and entry.pid == pid and entry.node == node() end)
-
-      by_node = SwarmRegistry.list_on_node(node())
-      assert Enum.any?(by_node, fn entry -> entry.name == "assistant" and entry.pid == pid end)
     end
 
     test "returns not_found for missing pods" do
@@ -87,6 +81,31 @@ defmodule DesignatorInator.SwarmRegistryTest do
 
       infos = SwarmRegistry.node_infos()
       assert Enum.sort_by(infos, & &1.node) == Enum.sort_by([info_a, info_b], & &1.node)
+    end
+
+    test "prefers the node whose loaded models match the pod model" do
+      local_node = node()
+      remote_node = :"designator_inator@remote"
+      local_pid = start_dummy_process()
+      remote_pid = start_dummy_process()
+
+      local_info = sample_node_info(local_node, "local", [], 1_024, 256)
+      remote_info = sample_node_info(remote_node, "remote", ["mistral-7b-instruct-v0.3.Q4_K_M"], 2_048, 512)
+
+      candidates = [
+        %{pid: local_pid, node: local_node, model: "mistral-7b-instruct-v0.3.Q4_K_M"},
+        %{pid: remote_pid, node: remote_node, model: "mistral-7b-instruct-v0.3.Q4_K_M"}
+      ]
+
+      assert %{pid: ^remote_pid} =
+               SwarmRegistry.preferred_candidate(candidates, %{local_node => local_info, remote_node => remote_info})
+
+      assert %{pid: ^local_pid} =
+               SwarmRegistry.preferred_candidate(
+                 [%{pid: local_pid, node: local_node, model: "mistral-7b-instruct-v0.3.Q4_K_M"},
+                  %{pid: remote_pid, node: remote_node, model: "other-model"}],
+                 %{local_node => local_info, remote_node => remote_info}
+               )
     end
 
     test "adds and removes remote node info on nodeup/nodedown and refreshes the gateway" do

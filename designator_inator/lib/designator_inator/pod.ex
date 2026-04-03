@@ -179,10 +179,11 @@ defmodule DesignatorInator.Pod do
           {:ok, pid}
         else
           Registry.unregister(DesignatorInator.PodRegistry, pod_name)
-          {:error, :not_found}
+          lookup_via_swarm(pod_name, pid)
         end
 
-      [] -> {:error, :not_found}
+      [] ->
+        lookup_via_swarm(pod_name, nil)
     end
   end
 
@@ -427,6 +428,23 @@ defmodule DesignatorInator.Pod do
     case Application.get_env(:designator_inator, :tool_registry_module) do
       nil -> ToolRegistry
       module -> module
+    end
+  end
+
+  defp swarm_registry_module do
+    case Application.get_env(:designator_inator, :swarm_registry_module) do
+      nil -> DesignatorInator.SwarmRegistry
+      module -> module
+    end
+  end
+
+  defp lookup_via_swarm(pod_name, _stale_pid) do
+    case swarm_registry_module().find_pod(pod_name) do
+      {:ok, {pid, _node}} ->
+        if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
+
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, _reason} -> {:error, :not_found}
     end
   end
 

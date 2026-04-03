@@ -388,9 +388,9 @@ model:
 
 **Goal:** A meta-agent that decomposes tasks and delegates to other pods.
 
-**Status: IN PROGRESS** — SwarmRegistry and node monitoring are in place; the remaining Milestone 7 work is cross-node routing from the orchestrator based on loaded-model awareness.
+**Status: DONE** — SwarmRegistry, node monitoring, model-aware pod selection, and cross-node pod lookup are implemented and verified.
 **Scaffolding status: DONE**
-**Implementation status: IN PROGRESS**
+**Implementation status: DONE**
 
 ### Checklist
 
@@ -405,9 +405,9 @@ model:
 - [x] `SwarmRegistry.handle_info {:nodedown, ...}` implemented (cleanup + notify MCPGateway)
 - [x] `SwarmRegistry.node_infos/0` implemented
 - [x] `ModelManager.node_info/0` implemented (builds `NodeInfo` from current state)
-- [ ] Cross-node routing in orchestrator (prefer node with model already loaded)
+- [x] Cross-node routing in orchestrator (prefer node with model already loaded)
 - [x] `CLI.cmd_connect/1` implemented
-- [x] **Milestone 7 core test passing:** registry lookups, node monitoring, and CLI connect tests green
+- [x] **Milestone 7 test passing:** registry lookups, node monitoring, and CLI connect tests green
 
 ### ToolRegistry
 - ETS-backed registry (fast reads, in-memory)

@@ -17,11 +17,13 @@ defmodule DesignatorInator.PodTest do
     Ecto.Adapters.SQL.Sandbox.mode(DesignatorInator.Memory.Repo, {:shared, self()})
 
     original_tool_registry_module = Application.get_env(:designator_inator, :tool_registry_module)
+    original_swarm_registry_module = Application.get_env(:designator_inator, :swarm_registry_module)
     original_tool_registry_entries = Application.get_env(:designator_inator, :test_tool_registry_entries)
     original_test_pid = Application.get_env(:designator_inator, :test_pid)
 
     on_exit(fn ->
       Application.put_env(:designator_inator, :tool_registry_module, original_tool_registry_module)
+      Application.put_env(:designator_inator, :swarm_registry_module, original_swarm_registry_module)
       Application.put_env(:designator_inator, :test_tool_registry_entries, original_tool_registry_entries)
       Application.put_env(:designator_inator, :test_pid, original_test_pid)
       Ecto.Adapters.SQL.Sandbox.mode(DesignatorInator.Memory.Repo, :manual)
@@ -84,6 +86,21 @@ defmodule DesignatorInator.PodTest do
 
       :ok = GenServer.stop(pid)
       assert_receive {:tool_registry_deregistered, "orchestrator"}
+    end
+
+    test "falls back to the swarm registry when the local registry misses" do
+      Application.put_env(:designator_inator, :tool_registry_module, DesignatorInator.PodTest.ToolRegistryStub)
+      Application.put_env(:designator_inator, :swarm_registry_module, DesignatorInator.PodTest.SwarmRegistryStub)
+      Application.put_env(:designator_inator, :test_pid, self())
+
+      remote_pod_name = "remote-assistant"
+      remote_pid = start_remote_chat_pod_stub(remote_pod_name)
+      Application.put_env(:designator_inator, :swarm_registry_lookup_result, {:ok, {remote_pid, node()}})
+
+      assert {:ok, "remote response", session_id} = Pod.chat(remote_pod_name, "hello from afar", nil)
+      assert is_binary(session_id)
+      assert_receive {:swarm_registry_find_pod, ^remote_pod_name}
+      assert_receive {:remote_chat_called, ^remote_pod_name, "hello from afar", nil}
     end
 
     test "retries an alternate pod when the first delegated pod fails" do
@@ -194,6 +211,16 @@ defmodule DesignatorInator.PodTest do
 
     pid
   end
+
+  defp start_remote_chat_pod_stub(pod_name) do
+    {:ok, pid} =
+      GenServer.start_link(
+        __MODULE__.RemoteChatPodStub,
+        %{pod_name: pod_name}
+      )
+
+    pid
+  end
 end
 
 defmodule DesignatorInator.PodTest.ToolRegistryStub do
@@ -220,6 +247,21 @@ defmodule DesignatorInator.PodTest.ToolRegistryStub do
     list_all()
     |> Enum.filter(fn {entry_pod_name, _pid, _tool} -> entry_pod_name == pod_name end)
     |> Enum.map(fn {_pod_name, _pid, tool} -> tool end)
+  end
+
+  defp test_pid do
+    Application.fetch_env!(:designator_inator, :test_pid)
+  end
+end
+
+defmodule DesignatorInator.PodTest.SwarmRegistryStub do
+  def find_pod(pod_name) do
+    send(test_pid(), {:swarm_registry_find_pod, pod_name})
+
+    case Application.get_env(:designator_inator, :swarm_registry_lookup_result) do
+      nil -> {:error, :not_found}
+      result -> result
+    end
   end
 
   defp test_pid do
@@ -291,5 +333,22 @@ defmodule DesignatorInator.PodTest.FailingExternalPodStub do
 
   def handle_call(:get_status, _from, state) do
     {:reply, %{status: :idle}, state}
+  end
+end
+
+defmodule DesignatorInator.PodTest.RemoteChatPodStub do
+  use GenServer
+
+  @impl GenServer
+  def init(state), do: {:ok, state}
+
+  @impl GenServer
+  def handle_call({:chat, message, session_id}, _from, %{pod_name: pod_name} = state) do
+    send(Application.fetch_env!(:designator_inator, :test_pid), {:remote_chat_called, pod_name, message, session_id})
+    {:reply, {:ok, "remote response", session_id || "remote-session"}, state}
+  end
+
+  def handle_call(:get_status, _from, state) do
+    {:reply, %{status: :idle, model: "mistral-7b-instruct-v0.3.Q4_K_M"}, state}
   end
 end

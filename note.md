@@ -28,9 +28,9 @@
 - Milestone 4 is complete, verified, and audited.
 - Milestone 5 is complete, verified, and audited.
 - Milestone 6 is complete: pods register/deregister exposed tools via ToolRegistry, the orchestrator example exposes namespaced pod tools through `internal_tools: ["pods"]`, ReActLoop executes tool calls in parallel, and orchestration persistence/recovery now work through persisted conversation history.
-- Milestone 7 has started: SwarmRegistry now handles `:pg`-based pod discovery, node connect, node monitoring, and node-info aggregation.
-- Current full test suite passes: 143 tests, 0 failures.
-- Next work is Milestone 7 cross-node routing in the orchestrator based on loaded-model awareness.
+- Milestone 7 is complete: SwarmRegistry now handles `:pg`-based pod discovery, node connect, node monitoring, node-info aggregation, and model-aware pod selection.
+- Current full test suite passes: 145 tests, 0 failures.
+- Next work is Milestone 8 (whatever the plan defines next) or user-directed follow-up.
 
 ## Toolchain / Environment
 

@@ -148,13 +148,14 @@ defmodule DesignatorInator.SwarmRegistry do
   """
   @spec find_pod(String.t()) :: {:ok, {pid(), node()}} | {:error, :not_found}
   def find_pod(pod_name) do
-    case :pg.get_members(@pg_scope, {:pods, pod_name}) do
-      [] ->
-        {:error, :not_found}
+    candidates =
+      :pg.get_members(@pg_scope, {:pods, pod_name})
+      |> Enum.filter(&Process.alive?/1)
+      |> Enum.map(&candidate_metadata/1)
 
-      members ->
-        pid = Enum.find(members, &(node(&1) == node())) || hd(members)
-        {:ok, {pid, node(pid)}}
+    case preferred_candidate(candidates, node_info_index()) do
+      nil -> {:error, :not_found}
+      %{pid: pid} -> {:ok, {pid, node(pid)}}
     end
   end
 
@@ -241,6 +242,17 @@ defmodule DesignatorInator.SwarmRegistry do
     GenServer.call(__MODULE__, :node_infos)
   end
 
+  @doc false
+  @spec preferred_candidate([
+          %{pid: pid(), node: node(), model: String.t() | nil}
+        ],
+        %{node() => NodeInfo.t()}
+      ) :: %{pid: pid(), node: node(), model: String.t() | nil} | nil
+  def preferred_candidate(candidates, node_infos) do
+    candidates
+    |> Enum.max_by(fn candidate -> candidate_score(candidate, node_infos) end, fn -> nil end)
+  end
+
   # ── GenServer callbacks ──────────────────────────────────────────────────────
 
   @impl GenServer
@@ -281,6 +293,46 @@ defmodule DesignatorInator.SwarmRegistry do
   @impl GenServer
   def handle_call(:node_infos, _from, state) do
     {:reply, Map.values(state.node_infos), state}
+  end
+
+  defp candidate_metadata(pid) do
+    status = pod_status(pid)
+    model = status && Map.get(status, :model)
+
+    %{pid: pid, node: node(pid), model: model}
+  end
+
+  defp candidate_score(%{node: candidate_node, model: model}, node_infos) do
+    node_info = Map.get(node_infos, candidate_node)
+
+    model_loaded? =
+      if model != nil and node_info do
+        model in node_info.loaded_models
+      else
+        false
+      end
+
+    local? = candidate_node == node()
+    {model_loaded?, local?}
+  end
+
+  defp node_info_index do
+    try do
+      node_infos()
+      |> Map.new(fn %NodeInfo{node: node_name} = info -> {node_name, info} end)
+    rescue
+      _ -> %{}
+    catch
+      :exit, _ -> %{}
+    end
+  end
+
+  defp pod_status(pid) do
+    try do
+      GenServer.call(pid, :get_status, 5_000)
+    catch
+      :exit, _ -> nil
+    end
   end
 
   defp fetch_node_info(node) do
