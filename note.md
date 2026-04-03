@@ -9,7 +9,7 @@
   - CLI/escript: `designator-inator`
   - default config paths: `~/.designator_inator/...`
 - Milestone 2 is complete and verified.
-- Milestone 3 core pod packaging is now largely implemented and the targeted pod tests pass.
+- Milestone 3 core pod packaging is largely implemented; CLI `run/list/stop/models` and chat loop are now wired and their targeted tests pass.
 - Fully implemented and verified so far:
   - `DesignatorInator.ModelInventory`
   - `DesignatorInator.Providers.LlamaCpp`

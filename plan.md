@@ -177,7 +177,7 @@ Each milestone produces something testable before the next begins.
 
 **Goal:** Agents are portable directory packages you can start, stop, and list via CLI.
 
-**Status: IN PROGRESS** — pod manifest/config parsing, pod GenServer lifecycle, pod supervision, workspace tools, and tool registry are implemented; CLI wiring is next.
+**Status: IN PROGRESS** — pod manifest/config parsing, pod GenServer lifecycle, pod supervision, workspace tools, tool registry, and CLI `run/list/stop/models` wiring are implemented; MCP `serve` is still pending.
 **Scaffolding status: DONE**
 **Implementation status: IN PROGRESS**
 
@@ -202,9 +202,9 @@ Each milestone produces something testable before the next begins.
 - [x] `PodSupervisor.start_pod/1` implemented
 - [x] `PodSupervisor.stop_pod/1` implemented
 - [x] `PodSupervisor.list_pods/0` implemented
-- [ ] `CLI.cmd_run/2` implemented
-- [ ] `CLI.chat_loop/2` implemented
-- [ ] `CLI.cmd_list/0`, `cmd_stop/1`, `cmd_models/0` implemented
+- [x] `CLI.cmd_run/2` implemented
+- [x] `CLI.chat_loop/2` implemented
+- [x] `CLI.cmd_list/0`, `cmd_stop/1`, `cmd_models/0` implemented
 - [ ] **Milestone 3 test passing:** `designator-inator run ./examples/assistant/` works end-to-end
 
 ### Directory structure (canonical)
@@ -562,16 +562,16 @@ Everything after step 10 builds on a proven, working foundation.
 > This section is maintained by agents. Update it when you finish work.
 > Remove items you complete. Add items you discover during implementation.
 
-### Immediate — continue Milestone 3
+### Immediate — continue Milestone 3 / start Milestone 4 prep
 
-Milestone 2 is complete and verified. The remaining Milestone 3 work is to finish workspace tool registration and wire the CLI end-to-end.
+Milestone 2 is complete and verified. Milestone 3's core pod lifecycle and CLI commands are now wired; the remaining work is mostly MCP transport/server integration plus an end-to-end smoke test.
 
 **Immediate next steps:**
 
-1. Implement `Tools.Workspace` with `safe_path/2` plus read/write/list/delete dispatch
-2. Add a full pod lifecycle integration test that exercises `PodSupervisor.start_pod/1` and `Pod.chat/3`
-3. Implement `ToolRegistry.register/2` and `deregister/1` so pods can expose internal tools
-4. Update `CLI.cmd_run/2`, `CLI.chat_loop/2`, `CLI.cmd_list/0`, `CLI.cmd_stop/1`, and `CLI.cmd_models/0`
+1. Verify `designator-inator run ./examples/assistant/` as a smoke test and capture any remaining pod/CLI edge cases
+2. Implement `CLI.cmd_serve/2` when the MCP transports are ready
+3. Fill in `MCP.Protocol` parsing/encoding and the stdio transport callbacks
+4. Continue the HTDP unit-test-by-module workflow for the remaining Milestone 4 stubs
 
 Proceed in the same HTDP unit-test-by-module fashion.
 

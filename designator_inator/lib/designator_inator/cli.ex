@@ -22,7 +22,7 @@ defmodule DesignatorInator.CLI do
   command against the running system.
   """
 
-  alias DesignatorInator.{PodSupervisor, ModelInventory, SwarmRegistry}
+  alias DesignatorInator.{PodSupervisor, ModelInventory, SwarmRegistry, Pod, Memory}
 
   @doc """
   Escript entry point — called with command-line args as a list of strings.
@@ -34,7 +34,21 @@ defmodule DesignatorInator.CLI do
     # 2. Start the OTP application: Application.ensure_all_started(:designator_inator)
     # 3. Dispatch to the appropriate command handler
     # 4. System.stop(0) on success
-    raise "not implemented"
+    {command, command_args, flags} = parse_main_args(args)
+
+    case ensure_app_started() do
+      :ok ->
+        case dispatch_command(command, command_args, flags) do
+          :ok -> System.stop(0)
+          {:error, reason} ->
+            IO.puts(format_error(reason))
+            System.stop(1)
+        end
+
+      {:error, reason} ->
+        IO.puts(format_error(reason))
+        System.stop(1)
+    end
   end
 
   # ── Command handlers ──────────────────────────────────────────────────────────
@@ -61,7 +75,37 @@ defmodule DesignatorInator.CLI do
     # 3. On error: print error and exit
     # 4. If --detach: print "Pod started: #{name}" and return
     # 5. If interactive: enter chat_loop(pod_name, session_id)
-    raise "not implemented"
+    case args do
+      [pod_path | _] ->
+        pod_path = Path.expand(pod_path)
+
+        case DesignatorInator.Pod.Manifest.load(Path.join(pod_path, "manifest.yaml")) do
+          {:ok, manifest} ->
+            case PodSupervisor.start_pod(pod_path) do
+              {:ok, _pid} ->
+                if Keyword.get(flags, :detach, false) do
+                  IO.puts("Pod started: #{manifest.name}")
+                  :ok
+                else
+                  session_id = Keyword.get(flags, :session) || Memory.new_session_id()
+                  IO.puts("[DesignatorInator] Starting pod: #{manifest.name}")
+                  chat_loop(manifest.name, session_id)
+                end
+              
+              {:error, reason} ->
+                IO.puts(format_error(reason))
+                {:error, reason}
+            end
+
+          {:error, reason} ->
+            IO.puts(format_error(reason))
+            {:error, reason}
+        end
+
+      [] ->
+        IO.puts("Usage: designator-inator run <pod-path> [--detach] [--session <id>]")
+        {:error, :missing_pod_path}
+    end
   end
 
   @doc """
@@ -84,7 +128,29 @@ defmodule DesignatorInator.CLI do
     # 3. If --port: configure SSE transport on that port
     # 4. If no --port: configure stdio transport (default for Claude Desktop)
     # 5. Block until transport signals done (EOF or shutdown)
-    raise "not implemented"
+    case args do
+      [pod_path | _] ->
+        case PodSupervisor.start_pod(pod_path) do
+          {:ok, _pid} ->
+            case Keyword.get(flags, :port) do
+              nil ->
+                IO.puts("[DesignatorInator] MCP stdio mode is not yet wired")
+                {:error, :not_implemented}
+
+              port ->
+                IO.puts("[DesignatorInator] SSE mode on port #{port} is not yet wired")
+                {:error, :not_implemented}
+            end
+
+          {:error, reason} ->
+            IO.puts(format_error(reason))
+            {:error, reason}
+        end
+
+      [] ->
+        IO.puts("Usage: designator-inator serve <pod-path> [--port <n>]")
+        {:error, :missing_pod_path}
+    end
   end
 
   @doc """
@@ -105,7 +171,15 @@ defmodule DesignatorInator.CLI do
     # 1. PodSupervisor.list_pods()
     # 2. Format as a table with headers
     # 3. IO.puts the table
-    raise "not implemented"
+    pods = PodSupervisor.list_pods()
+
+    rows =
+      Enum.map(pods, fn %{name: name, status: status, pid: pid} ->
+        [name, Atom.to_string(status), inspect(pid)]
+      end)
+
+    print_table(["NAME", "STATUS", "PID"], rows)
+    :ok
   end
 
   @doc """
@@ -122,7 +196,22 @@ defmodule DesignatorInator.CLI do
     # 1. Extract name from args[0]
     # 2. PodSupervisor.stop_pod(name)
     # 3. Print result
-    raise "not implemented"
+    case args do
+      [name | _] ->
+        case PodSupervisor.stop_pod(name) do
+          :ok ->
+            IO.puts("[DesignatorInator] Pod stopped: #{name}")
+            :ok
+
+          {:error, reason} ->
+            IO.puts(format_error(reason))
+            {:error, reason}
+        end
+
+      [] ->
+        IO.puts("Usage: designator-inator stop <name>")
+        {:error, :missing_pod_name}
+    end
   end
 
   @doc """
@@ -143,7 +232,25 @@ defmodule DesignatorInator.CLI do
     # 1. ModelInventory.list()
     # 2. Format as table
     # 3. IO.puts
-    raise "not implemented"
+    case ModelInventory.list() do
+      {:ok, models} ->
+        rows =
+          Enum.map(models, fn model ->
+            [
+              model.name,
+              format_params(model.size_params_b),
+              format_quantization(model.quantization),
+              format_size(model.size_bytes)
+            ]
+          end)
+
+        print_table(["NAME", "PARAMS", "QUANT", "SIZE"], rows)
+        :ok
+
+      {:error, reason} ->
+        IO.puts(format_error(reason))
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -161,7 +268,33 @@ defmodule DesignatorInator.CLI do
     # 1. Extract ip from args[0]
     # 2. SwarmRegistry.connect(ip)
     # 3. List newly visible pods
-    raise "not implemented"
+    case args do
+      [ip_or_hostname | _] ->
+        case SwarmRegistry.connect(ip_or_hostname) do
+          {:ok, node_name} ->
+            IO.puts("[DesignatorInator] Connected to: #{node_name}")
+
+            pods =
+              SwarmRegistry.list_on_node(node_name)
+              |> Enum.map_join(", ", fn %{name: name, pid: pid} ->
+                "#{name} (#{inspect(pid)})"
+              end)
+
+            if pods != "" do
+              IO.puts("[DesignatorInator] Remote pods visible: #{pods}")
+            end
+
+            :ok
+
+          {:error, reason} ->
+            IO.puts(format_error(reason))
+            {:error, reason}
+        end
+
+      [] ->
+        IO.puts("Usage: designator-inator connect <ip>")
+        {:error, :missing_host}
+    end
   end
 
   # ── Interactive chat loop ─────────────────────────────────────────────────────
@@ -189,7 +322,31 @@ defmodule DesignatorInator.CLI do
     # 4. On input: DesignatorInator.Pod.chat(pod_name, String.trim(input), session_id)
     # 5. Print "#{pod_name}: #{response}"
     # 6. Recurse with the returned session_id
-    raise "not implemented"
+    IO.write("You: ")
+
+    case IO.gets("") do
+      :eof ->
+        IO.puts("Goodbye")
+        :ok
+
+      input ->
+        trimmed = String.trim(input)
+
+        if trimmed == "/quit" do
+          IO.puts("Goodbye")
+          :ok
+        else
+          case pod_module().chat(pod_name, trimmed, session_id) do
+            {:ok, response, next_session_id} ->
+              IO.puts("#{pod_name}: #{response}")
+              chat_loop(pod_name, next_session_id)
+
+            {:error, reason} ->
+              IO.puts(format_error(reason))
+              :ok
+          end
+        end
+    end
   end
 
   # ── Usage/help ────────────────────────────────────────────────────────────────
@@ -214,4 +371,89 @@ defmodule DesignatorInator.CLI do
       designator-inator models
     """)
   end
+
+  defp parse_main_args(args) do
+    case args do
+      [] -> {nil, [], []}
+      [command | rest] ->
+        {flags, positional, _invalid} = OptionParser.parse(rest, strict: [detach: :boolean, session: :string, port: :integer])
+        {command, positional, flags}
+    end
+  end
+
+  defp ensure_app_started do
+    case Application.ensure_all_started(:designator_inator) do
+      {:ok, _} -> :ok
+      {:error, {_app, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp dispatch_command(nil, _args, _flags) do
+    print_usage()
+    {:error, :missing_command}
+  end
+
+  defp dispatch_command("run", args, flags), do: cmd_run(args, flags)
+  defp dispatch_command("serve", args, flags), do: cmd_serve(args, flags)
+  defp dispatch_command("list", _args, _flags), do: cmd_list()
+  defp dispatch_command("stop", args, _flags), do: cmd_stop(args)
+  defp dispatch_command("models", _args, _flags), do: cmd_models()
+  defp dispatch_command("connect", args, _flags), do: cmd_connect(args)
+
+  defp dispatch_command(_unknown, _args, _flags) do
+    print_usage()
+    {:error, :unknown_command}
+  end
+
+  defp pod_module do
+    Application.get_env(:designator_inator, :cli_pod_module, Pod)
+  end
+
+  defp format_error(reason) when is_binary(reason), do: "[DesignatorInator] #{reason}"
+  defp format_error(reason), do: "[DesignatorInator] #{inspect(reason)}"
+
+  defp print_table(headers, rows) do
+    widths = column_widths([headers | rows])
+
+    [headers | rows]
+    |> Enum.map_join("\n", &format_row(&1, widths))
+    |> IO.puts()
+  end
+
+  defp column_widths(rows) do
+    rows
+    |> Enum.zip()
+    |> Enum.map(fn column ->
+      column
+      |> Tuple.to_list()
+      |> Enum.map(&String.length(to_string(&1)))
+      |> Enum.reduce(0, &max/2)
+    end)
+  end
+
+  defp format_row(cells, widths) do
+    cells
+    |> Enum.with_index()
+    |> Enum.map(fn {cell, index} ->
+      cell
+      |> to_string()
+      |> String.pad_trailing(Enum.at(widths, index, 0))
+    end)
+    |> Enum.join("  ")
+  end
+
+  defp format_params(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1) <> "B"
+  defp format_params(value), do: to_string(value)
+
+  defp format_quantization({:unknown, quant}), do: quant
+  defp format_quantization(atom) when is_atom(atom), do: atom |> Atom.to_string() |> String.upcase()
+
+  defp format_size(bytes) when is_integer(bytes) and bytes >= 1_000_000_000,
+    do: :erlang.float_to_binary(bytes / 1_000_000_000, decimals: 1) <> " GB"
+
+  defp format_size(bytes) when is_integer(bytes) and bytes >= 1_000_000,
+    do: :erlang.float_to_binary(bytes / 1_000_000, decimals: 1) <> " MB"
+
+  defp format_size(bytes), do: "#{bytes} B"
 end
