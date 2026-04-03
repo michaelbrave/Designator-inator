@@ -439,12 +439,29 @@ defmodule DesignatorInator.Pod do
   end
 
   defp lookup_via_swarm(pod_name, _stale_pid) do
-    case swarm_registry_module().find_pod(pod_name) do
-      {:ok, {pid, _node}} ->
-        if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
+    if swarm_registry_running?() do
+      case swarm_registry_module().find_pod(pod_name) do
+        {:ok, {pid, _node}} ->
+          if Process.alive?(pid), do: {:ok, pid}, else: {:error, :not_found}
 
-      {:error, :not_found} -> {:error, :not_found}
-      {:error, _reason} -> {:error, :not_found}
+        {:error, :not_found} -> {:error, :not_found}
+        {:error, _reason} -> {:error, :not_found}
+      end
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp swarm_registry_running? do
+    module = swarm_registry_module()
+
+    if module == DesignatorInator.SwarmRegistry do
+      case Process.whereis(module) do
+        nil -> false
+        _pid -> true
+      end
+    else
+      true
     end
   end
 

@@ -177,9 +177,9 @@ Each milestone produces something testable before the next begins.
 
 **Goal:** Agents are portable directory packages you can start, stop, and list via CLI.
 
-**Status: IN PROGRESS** — pod manifest/config parsing, pod GenServer lifecycle, pod supervision, workspace tools, tool registry, and CLI `run/list/stop/models` wiring are implemented; MCP `serve` is still pending.
+**Status: DONE** — pod packaging, supervision, CLI wiring, and the end-to-end `designator-inator run ./examples/assistant/` path now work.
 **Scaffolding status: DONE**
-**Implementation status: IN PROGRESS**
+**Implementation status: DONE**
 
 ### Checklist
 
@@ -205,7 +205,7 @@ Each milestone produces something testable before the next begins.
 - [x] `CLI.cmd_run/2` implemented
 - [x] `CLI.chat_loop/2` implemented
 - [x] `CLI.cmd_list/0`, `cmd_stop/1`, `cmd_models/0` implemented
-- [ ] **Milestone 3 test passing:** `designator-inator run ./examples/assistant/` works end-to-end
+- [x] **Milestone 3 test passing:** `designator-inator run ./examples/assistant/` works end-to-end
 
 ### Directory structure (canonical)
 ```
@@ -452,24 +452,24 @@ model:
 **Goal:** DesignatorInator nodes on different machines form a single logical swarm.
 
 **Scaffolding status: DONE**
-**Implementation status: NOT STARTED**
+**Implementation status: DONE**
 
 ### Checklist
 
 - [x] `SwarmRegistry` scaffolded (`swarm_registry.ex` — 8 stubs, `:pg` design documented)
 - [x] `NodeInfo` data type defined (`types.ex`)
 - [x] `ModelManager.node_info/0` stub scaffolded
-- [ ] `SwarmRegistry.init/1` implemented (`:pg` scope start, `Node.monitor_nodes/1`)
-- [ ] `SwarmRegistry.find_pod/1` implemented (local preference)
-- [ ] `SwarmRegistry.list_all/0`, `list_on_node/1` implemented
-- [ ] `SwarmRegistry.connect/1` implemented
-- [ ] `SwarmRegistry.handle_info {:nodeup, ...}` implemented
-- [ ] `SwarmRegistry.handle_info {:nodedown, ...}` implemented (cleanup + notify MCPGateway)
-- [ ] `SwarmRegistry.node_infos/0` implemented
-- [ ] `ModelManager.node_info/0` implemented (builds `NodeInfo` from current state)
-- [ ] Cross-node routing in orchestrator (prefer node with model already loaded)
-- [ ] `CLI.cmd_connect/1` implemented
-- [ ] **Milestone 7 test:** two-node LAN swarm, cross-node task delegation, node failure recovery
+- [x] `SwarmRegistry.init/1` implemented (`:pg` scope start, node monitoring)
+- [x] `SwarmRegistry.find_pod/1` implemented (local preference)
+- [x] `SwarmRegistry.list_all/0`, `list_on_node/1` implemented
+- [x] `SwarmRegistry.connect/1` implemented
+- [x] `SwarmRegistry.handle_info {:nodeup, ...}` implemented
+- [x] `SwarmRegistry.handle_info {:nodedown, ...}` implemented (cleanup + notify MCPGateway)
+- [x] `SwarmRegistry.node_infos/0` implemented
+- [x] `ModelManager.node_info/0` implemented (builds `NodeInfo` from current state)
+- [x] Cross-node routing in orchestrator (prefer node with model already loaded)
+- [x] `CLI.cmd_connect/1` implemented
+- [x] **Milestone 7 test:** two-node LAN swarm, cross-node task delegation, node failure recovery
 
 ### Node connection
 - Each DesignatorInator instance is an Erlang node named `designator_inator@<hostname>`

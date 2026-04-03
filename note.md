@@ -25,12 +25,13 @@
   - `DesignatorInator.MCPGateway`
   - `DesignatorInator.CLI.cmd_serve/2` stdio wiring
   - `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch + response routing
+- Milestone 3 is complete: assistant pod packaging, CLI run/list/stop/models, and the end-to-end `designator-inator run ./examples/assistant/` path are verified.
 - Milestone 4 is complete, verified, and audited.
 - Milestone 5 is complete, verified, and audited.
 - Milestone 6 is complete: pods register/deregister exposed tools via ToolRegistry, the orchestrator example exposes namespaced pod tools through `internal_tools: ["pods"]`, ReActLoop executes tool calls in parallel, and orchestration persistence/recovery now work through persisted conversation history.
 - Milestone 7 is complete: SwarmRegistry now handles `:pg`-based pod discovery, node connect, node monitoring, node-info aggregation, and model-aware pod selection.
 - Current full test suite passes: 145 tests, 0 failures.
-- Next work is Milestone 8 (whatever the plan defines next) or user-directed follow-up.
+- First version of the project is now complete; next work is user-directed follow-up.
 
 ## Toolchain / Environment
 
