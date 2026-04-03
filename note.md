@@ -21,6 +21,7 @@
   - `DesignatorInator.Pod.Config`
   - `DesignatorInator.Pod`
   - `DesignatorInator.PodSupervisor`
+- `DesignatorInator.ToolRegistry`
 - Full app startup is still not ready because later milestones (especially MCP integration) remain unfinished.
 
 ## Toolchain / Environment

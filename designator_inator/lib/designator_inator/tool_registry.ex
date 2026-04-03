@@ -65,7 +65,16 @@ defmodule DesignatorInator.ToolRegistry do
     # Template:
     # :ets.match_object(@table_name, {tool_name, :"$1", :"$2", :"$3"})
     # Map results to {pod_name, pod_pid, definition} tuples
-    raise "not implemented"
+    case table_ready?() do
+      false ->
+        []
+
+      true ->
+        :ets.lookup(@table_name, tool_name)
+        |> Enum.map(fn {_tool_name, pod_name, pod_pid, definition} ->
+          {pod_name, pod_pid, definition}
+        end)
+    end
   end
 
   @doc """
@@ -82,7 +91,12 @@ defmodule DesignatorInator.ToolRegistry do
   @spec list_all() :: [{String.t(), pid(), ToolDefinition.t()}]
   def list_all do
     # Template: :ets.tab2list(@table_name) |> format
-    raise "not implemented"
+    if table_ready?() do
+      :ets.tab2list(@table_name)
+      |> format_entries()
+    else
+      []
+    end
   end
 
   @doc """
@@ -96,7 +110,13 @@ defmodule DesignatorInator.ToolRegistry do
   @spec tools_for_pod(String.t()) :: [ToolDefinition.t()]
   def tools_for_pod(pod_name) do
     # Template: ETS match on pod_name field
-    raise "not implemented"
+    if table_ready?() do
+      :ets.tab2list(@table_name)
+      |> Enum.filter(fn {_tool_name, pod, _pid, _definition} -> pod == pod_name end)
+      |> Enum.map(fn {_tool_name, _pod, _pid, definition} -> definition end)
+    else
+      []
+    end
   end
 
   # ── Public API (writes — via GenServer) ──────────────────────────────────────
@@ -141,7 +161,8 @@ defmodule DesignatorInator.ToolRegistry do
     # Template:
     # :ets.new(@table_name, [:named_table, :bag, :public, read_concurrency: true])
     # Return {:ok, %{}}
-    raise "not implemented"
+    :ets.new(@table_name, [:named_table, :bag, :public, read_concurrency: true])
+    {:ok, %{}}
   end
 
   @impl GenServer
@@ -152,7 +173,16 @@ defmodule DesignatorInator.ToolRegistry do
     #    for each tool in tools
     # 3. Log how many tools registered
     # 4. Reply :ok
-    raise "not implemented"
+    :ets.match_delete(@table_name, {:_, pod_name, :_, :_})
+
+    entries =
+      Enum.map(tools, fn tool ->
+        {tool.name, pod_name, pod_pid, tool}
+      end)
+
+    Enum.each(entries, &:ets.insert(@table_name, &1))
+    Logger.debug("Registered #{length(entries)} tools for pod #{pod_name}")
+    {:reply, :ok, state}
   end
 
   @impl GenServer
@@ -160,6 +190,18 @@ defmodule DesignatorInator.ToolRegistry do
     # Template:
     # :ets.match_delete(@table_name, {:"_", pod_name, :"_", :"_"})
     # Reply :ok
-    raise "not implemented"
+    :ets.match_delete(@table_name, {:_, pod_name, :_, :_})
+    Logger.debug("Deregistered tools for pod #{pod_name}")
+    {:reply, :ok, state}
+  end
+
+  defp table_ready? do
+    :ets.whereis(@table_name) != :undefined
+  end
+
+  defp format_entries(entries) do
+    Enum.map(entries, fn {_tool_name, pod_name, pod_pid, definition} ->
+      {pod_name, pod_pid, definition}
+    end)
   end
 end

@@ -177,7 +177,7 @@ Each milestone produces something testable before the next begins.
 
 **Goal:** Agents are portable directory packages you can start, stop, and list via CLI.
 
-**Status: IN PROGRESS** — pod manifest/config parsing, pod GenServer lifecycle, and pod supervision are implemented; workspace tools and CLI wiring are next.
+**Status: IN PROGRESS** — pod manifest/config parsing, pod GenServer lifecycle, pod supervision, workspace tools, and tool registry are implemented; CLI wiring is next.
 **Scaffolding status: DONE**
 **Implementation status: IN PROGRESS**
 
