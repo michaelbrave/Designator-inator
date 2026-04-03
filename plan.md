@@ -331,7 +331,7 @@ designator-inator models                   # list available GGUFs
 **Goal:** Pods can fall back to Anthropic/OpenAI when local resources are insufficient.
 
 **Scaffolding status: DONE**
-**Implementation status: NOT STARTED**
+**Status: DONE** — Anthropic/OpenAI provider request paths and ModelManager auto-fallback routing are implemented and verified with targeted tests.
 
 ### Checklist
 
@@ -340,13 +340,13 @@ designator-inator models                   # list available GGUFs
 - [x] `Providers.OpenAI` scaffolded
 - [x] `ModelManager.provider_for/1` implemented (model name prefix routing)
 - [x] Config struct supports `providers:` section with `api_key_env` fields
-- [ ] `Providers.Anthropic.complete/2` implemented
-- [ ] `Providers.Anthropic.model_id/1` implemented (short name → API model ID)
-- [ ] `Providers.Anthropic.messages_to_anthropic/1` implemented
-- [ ] `Providers.OpenAI.complete/2` implemented
-- [ ] `Pod.Config.resolve_api_key/2` implemented
-- [ ] `ModelManager` fallback logic implemented (`fallback_mode: auto` triggers on 3 consecutive errors or VRAM full)
-- [ ] **Milestone 5 test passing:** VRAM full → auto-fallback routes to cloud provider
+- [x] `Providers.Anthropic.complete/2` implemented
+- [x] `Providers.Anthropic.model_id/1` implemented (short name → API model ID)
+- [x] `Providers.Anthropic.messages_to_anthropic/1` implemented
+- [x] `Providers.OpenAI.complete/2` implemented
+- [x] `Pod.Config.resolve_api_key/2` implemented
+- [x] `ModelManager` fallback logic implemented (`fallback_mode: auto` triggers on 3 consecutive errors or VRAM full)
+- [x] **Milestone 5 test passing:** VRAM full → auto-fallback routes to cloud provider
 
 ### Provider abstraction
 - Define `DesignatorInator.InferenceProvider` behaviour: `complete(messages, opts)` → `{:ok, response}` | `{:error, reason}`
@@ -569,9 +569,9 @@ Milestone 2 is complete and verified. Milestone 3's core pod lifecycle and CLI c
 
 **Immediate next steps:**
 
-1. Start Milestone 5: implement `Providers.Anthropic.complete/2`, `model_id/1`, and `messages_to_anthropic/1`
-2. Implement `Providers.OpenAI.complete/2`
-3. Keep the targeted MCP/CLI/SSE tests green while expanding Milestone 5 provider coverage
+1. Start Milestone 6: implement the orchestration layer / orchestrator pod delegation
+2. Keep the Milestone 5 provider and routing tests green while adding orchestration coverage
+3. Continue in HTDP one-module-at-a-time order
 
 Proceed in the same HTDP unit-test-by-module fashion.
 

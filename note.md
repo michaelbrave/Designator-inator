@@ -26,8 +26,14 @@
 - `DesignatorInator.CLI.cmd_serve/2` stdio wiring
 - `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch basics
 - Milestone 4 is complete and verified.
-- Current targeted MCP/CLI/SSE tests pass: `test/designator_inator/mcp/protocol_test.exs`, `test/designator_inator/mcp/transport_stdio_test.exs`, `test/designator_inator/mcp_gateway_test.exs`, `test/designator_inator/cli_test.exs`, `test/designator_inator/mcp/transport_sse_test.exs` = 31 tests, 0 failures.
-- Next work is Milestone 5 cloud provider integration (`Providers.Anthropic`, `Providers.OpenAI`, and API key resolution).
+- Milestone 5 is complete and verified.
+- Implemented / verified:
+  - `Providers.Anthropic.complete/2`, `model_id/1`, and `messages_to_anthropic/1`
+  - `Providers.OpenAI.complete/2`
+  - `ModelManager` auto-fallback routing for `fallback_mode: auto`
+  - provider and routing tests for Anthropic/OpenAI + ModelManager
+- Current targeted provider/model-manager tests pass: 24 tests, 0 failures.
+- Next work is Milestone 6 orchestration / orchestrator pod delegation.
 
 ## Toolchain / Environment
 
