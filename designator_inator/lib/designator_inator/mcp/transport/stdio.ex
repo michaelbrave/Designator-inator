@@ -68,7 +68,8 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     # Template:
     # 1. Start the reader task: Task.start_link(fn -> read_loop(self()) end)
     # 2. Return {:ok, %{reader_pid: task_pid}}
-    {:ok, reader_pid} = Task.start_link(fn -> read_loop(self()) end)
+    parent_pid = self()
+    {:ok, reader_pid} = Task.start_link(fn -> read_loop(parent_pid) end)
     {:ok, %{reader_pid: reader_pid}}
   end
 
@@ -109,7 +110,7 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
   def handle_info(:eof, state) do
     # Template: Log "MCP client disconnected", stop the application
     Logger.info("MCP stdio client disconnected — exiting")
-    System.stop(0)
+    stop_fun().(0)
     {:noreply, state}
   end
 
@@ -153,6 +154,10 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
 
   defp gateway_module do
     Application.get_env(:designator_inator, :mcp_gateway_module, DesignatorInator.MCPGateway)
+  end
+
+  defp stop_fun do
+    Application.get_env(:designator_inator, :mcp_stdio_stop_fun, &System.stop/1)
   end
 
   @doc false

@@ -18,26 +18,24 @@ defmodule DesignatorInator.MCPGateway do
       assistant__chat              → routes to pod "assistant"
 
   When only one pod is running (or the gateway is in single-pod mode), tools
-  are exposed without a namespace.  The routing logic checks the namespace
+  are exposed without a namespace. The routing logic checks the namespace
   separator `__` to determine mode.
 
   ## MCP method routing
 
-  | Method       | Handler                                                      |
-  |--------------|--------------------------------------------------------------|
-  | `initialize` | Return server capabilities (no pod involved)                 |
-  | `initialized`| Acknowledge (no-op)                                          |
-  | `tools/list` | Aggregate tools from all pods via `ToolRegistry`             |
-  | `tools/call` | Parse namespace, route to `Pod.call_tool/3`                  |
+  | Method        | Handler                                               |
+  |---------------|--------------------------------------------------------|
+  | `initialize`  | Return server capabilities (no pod involved)          |
+  | `initialized` | Acknowledge (no-op)                                   |
+  | `tools/list`  | Aggregate tools from all pods via `ToolRegistry`      |
+  | `tools/call`  | Parse namespace, route to `Pod.call_tool/3`           |
 
   ## State (HTDP step 1)
 
       %{
-        mode: :single | :multi,           # single = one pod, no namespace
-        active_pod: String.t() | nil,     # for single mode
-        sse_connections: %{               # for SSE transport
-          connection_id => send_fn
-        }
+        mode: :single | :multi,
+        active_pod: String.t() | nil,
+        sse_connections: %{connection_id => send_fn}
       }
   """
 
@@ -46,7 +44,7 @@ defmodule DesignatorInator.MCPGateway do
 
   alias DesignatorInator.MCP.Protocol
   alias DesignatorInator.Types.MCPMessage
-  alias DesignatorInator.{ToolRegistry, Pod}
+  alias DesignatorInator.{Pod, ToolRegistry}
 
   @namespace_separator "__"
 
@@ -113,33 +111,47 @@ defmodule DesignatorInator.MCPGateway do
 
   @impl GenServer
   def handle_call({:handle_request, %MCPMessage{method: "initialized"}}, _from, state) do
-    # Notification — no response needed (id is nil for notifications)
     {:reply, nil, state}
   end
 
   @impl GenServer
   def handle_call({:handle_request, %MCPMessage{method: "tools/list"} = msg}, _from, state) do
-    # Template (HTDP step 4):
-    # 1. ToolRegistry.list_all() → list of {pod_name, pid, definition}
-    # 2. In :multi mode: namespace each tool name: "#{pod_name}__#{tool.name}"
-    # 3. In :single mode: use tool names as-is
-    # 4. Protocol.tools_to_mcp(definitions) → result map
-    # 5. {:reply, Protocol.make_response(msg.id, result), state}
-    raise "not implemented"
+    definitions =
+      ToolRegistry.list_all()
+      |> Enum.map(fn {pod_name, _pid, definition} ->
+        maybe_namespace_tool(definition, pod_name, state.mode)
+      end)
+
+    result = Protocol.tools_to_mcp(definitions)
+    {:reply, Protocol.make_response(msg.id, result), state}
   end
 
   @impl GenServer
   def handle_call({:handle_request, %MCPMessage{method: "tools/call"} = msg}, _from, state) do
-    # Template (HTDP step 4):
-    # 1. Extract tool_name and arguments from msg.params
-    # 2. Parse namespace: split on @namespace_separator
-    # 3. :multi mode — {pod_name, bare_tool_name} from "pod_name__tool_name"
-    # 4. :single mode — use state.active_pod, tool_name as-is
-    # 5. Call Pod.call_tool(pod_name, bare_tool_name, arguments)
-    # 6. On {:ok, result}: Protocol.make_tool_result(msg.id, result)
-    # 7. On {:error, :pod_not_found}: Protocol.make_error(msg.id, -32601, "Pod not found")
-    # 8. On {:error, :tool_not_found}: Protocol.make_error(msg.id, -32601, "Tool not found")
-    raise "not implemented"
+    {tool_name, arguments} = extract_tool_call_params(msg.params)
+
+    case resolve_tool_route(tool_name, state) do
+      {:ok, pod_name, bare_tool_name} ->
+        case Pod.call_tool(pod_name, bare_tool_name, arguments) do
+          {:ok, result} ->
+            {:reply, Protocol.make_tool_result(msg.id, result), state}
+
+          {:error, :pod_not_found} ->
+            {:reply, Protocol.make_error(msg.id, -32601, "Pod not found"), state}
+
+          {:error, :tool_not_found} ->
+            {:reply, Protocol.make_error(msg.id, -32601, "Tool not found"), state}
+
+          {:error, reason} ->
+            {:reply, Protocol.make_error(msg.id, -32603, "Tool call failed", reason), state}
+        end
+
+      {:error, :invalid_params} ->
+        {:reply, Protocol.make_error(msg.id, -32602, "Invalid params"), state}
+
+      {:error, :pod_not_found} ->
+        {:reply, Protocol.make_error(msg.id, -32601, "Pod not found"), state}
+    end
   end
 
   @impl GenServer
@@ -157,4 +169,36 @@ defmodule DesignatorInator.MCPGateway do
   def handle_call({:deregister_sse, conn_id}, _from, state) do
     {:reply, :ok, update_in(state.sse_connections, &Map.delete(&1, conn_id))}
   end
+
+  defp maybe_namespace_tool(definition, pod_name, :multi) do
+    %{definition | name: pod_name <> @namespace_separator <> definition.name}
+  end
+
+  defp maybe_namespace_tool(definition, _pod_name, :single), do: definition
+
+  defp extract_tool_call_params(params) when is_map(params) do
+    {Map.get(params, "name"), Map.get(params, "arguments", %{})}
+  end
+
+  defp extract_tool_call_params(_), do: {nil, %{}}
+
+  defp resolve_tool_route(_tool_name, %{mode: :single, active_pod: nil}) do
+    {:error, :pod_not_found}
+  end
+
+  defp resolve_tool_route(tool_name, %{mode: :single, active_pod: pod_name}) when is_binary(tool_name) do
+    {:ok, pod_name, tool_name}
+  end
+
+  defp resolve_tool_route(tool_name, %{mode: :multi}) when is_binary(tool_name) do
+    case String.split(tool_name, @namespace_separator, parts: 2) do
+      [pod_name, bare_tool_name] when pod_name != "" and bare_tool_name != "" ->
+        {:ok, pod_name, bare_tool_name}
+
+      _ ->
+        {:error, :invalid_params}
+    end
+  end
+
+  defp resolve_tool_route(_tool_name, _state), do: {:error, :invalid_params}
 end

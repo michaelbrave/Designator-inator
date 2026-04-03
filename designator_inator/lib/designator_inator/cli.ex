@@ -124,22 +124,40 @@ defmodule DesignatorInator.CLI do
   def cmd_serve(args, flags) do
     # Template (HTDP step 4):
     # 1. Extract pod_path, optional --port flag
-    # 2. PodSupervisor.start_pod(pod_path)
-    # 3. If --port: configure SSE transport on that port
-    # 4. If no --port: configure stdio transport (default for Claude Desktop)
-    # 5. Block until transport signals done (EOF or shutdown)
+    # 2. Start the pod through the configured supervisor module
+    # 3. If --port: return a clear not-yet-implemented error for SSE
+    # 4. If no --port: start the configured MCP transport module (stdio)
+    # 5. Block until the transport exits
     case args do
       [pod_path | _] ->
-        case PodSupervisor.start_pod(pod_path) do
-          {:ok, _pid} ->
-            case Keyword.get(flags, :port) do
-              nil ->
-                IO.puts("[DesignatorInator] MCP stdio mode is not yet wired")
-                {:error, :not_implemented}
+        pod_path = Path.expand(pod_path)
 
-              port ->
-                IO.puts("[DesignatorInator] SSE mode on port #{port} is not yet wired")
-                {:error, :not_implemented}
+        case DesignatorInator.Pod.Manifest.load(Path.join(pod_path, "manifest.yaml")) do
+          {:ok, manifest} ->
+            case pod_supervisor_module().start_pod(pod_path) do
+              {:ok, _pid} ->
+                case Keyword.get(flags, :port) do
+                  nil ->
+                    IO.puts("[DesignatorInator] Starting MCP stdio server: #{manifest.name}")
+
+                    case mcp_transport_module().start_link([]) do
+                      {:ok, transport_pid} ->
+                        wait_for_process_exit(transport_pid)
+                        :ok
+
+                      {:error, reason} ->
+                        IO.puts(format_error(reason))
+                        {:error, reason}
+                    end
+
+                  port ->
+                    IO.puts("[DesignatorInator] SSE mode on port #{port} is not yet wired")
+                    {:error, :not_implemented}
+                end
+
+              {:error, reason} ->
+                IO.puts(format_error(reason))
+                {:error, reason}
             end
 
           {:error, reason} ->
@@ -408,6 +426,22 @@ defmodule DesignatorInator.CLI do
 
   defp pod_module do
     Application.get_env(:designator_inator, :cli_pod_module, Pod)
+  end
+
+  defp pod_supervisor_module do
+    Application.get_env(:designator_inator, :cli_pod_supervisor_module, PodSupervisor)
+  end
+
+  defp mcp_transport_module do
+    Application.get_env(:designator_inator, :cli_mcp_transport_module, DesignatorInator.MCP.Transport.Stdio)
+  end
+
+  defp wait_for_process_exit(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    end
   end
 
   defp format_error(reason) when is_binary(reason), do: "[DesignatorInator] #{reason}"

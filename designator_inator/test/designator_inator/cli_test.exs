@@ -13,6 +13,46 @@ defmodule DesignatorInator.CLITest do
     end
   end
 
+  defmodule StubPodSupervisor do
+    def start_pod(pod_path) do
+      send(test_pid(), {:start_pod, pod_path})
+      {:ok, self()}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:designator_inator, :cli_test_pid)
+    end
+  end
+
+  defmodule StubTransport do
+    def start_link(_opts) do
+      pid = test_pid()
+
+      Task.start_link(fn ->
+        send(pid, :transport_started)
+        Process.sleep(10)
+      end)
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:designator_inator, :cli_test_pid)
+    end
+  end
+
+  defmodule ServeGatewayStub do
+    def handle_request(%{method: "initialize", id: id}) do
+      DesignatorInator.MCP.Protocol.make_initialize_response(id)
+    end
+
+    def handle_request(%{method: "tools/list", id: id}) do
+      DesignatorInator.MCP.Protocol.make_response(id, %{"tools" => []})
+    end
+
+    def handle_request(msg) do
+      DesignatorInator.MCP.Protocol.make_error(msg.id, -32601, "Method not found")
+    end
+  end
+
   setup_all do
     case Process.whereis(DesignatorInator.PodRegistry) do
       nil -> {:ok, _} = start_supervised({Registry, keys: :unique, name: DesignatorInator.PodRegistry})
@@ -35,6 +75,11 @@ defmodule DesignatorInator.CLITest do
       end
 
       Application.delete_env(:designator_inator, :cli_pod_module)
+      Application.delete_env(:designator_inator, :cli_pod_supervisor_module)
+      Application.delete_env(:designator_inator, :cli_mcp_transport_module)
+      Application.delete_env(:designator_inator, :mcp_gateway_module)
+      Application.delete_env(:designator_inator, :mcp_stdio_stop_fun)
+      Application.delete_env(:designator_inator, :cli_test_pid)
       Application.delete_env(:designator_inator, :models_dir)
     end)
 
@@ -87,6 +132,46 @@ defmodule DesignatorInator.CLITest do
 
     assert output =~ "NAME"
     assert output =~ "mistral-7b-instruct-v0.3.Q4_K_M"
+  end
+
+  test "cmd_serve/2 starts the pod and blocks on the configured transport" do
+    Application.put_env(:designator_inator, :cli_pod_supervisor_module, StubPodSupervisor)
+    Application.put_env(:designator_inator, :cli_mcp_transport_module, StubTransport)
+    Application.put_env(:designator_inator, :cli_test_pid, self())
+
+    pod_path = Path.expand(@assistant_path)
+
+    output = capture_io(fn ->
+      assert :ok = CLI.cmd_serve([@assistant_path], [])
+    end)
+
+    assert output =~ "Starting MCP stdio server: assistant"
+    assert_receive {:start_pod, ^pod_path}
+    assert_receive :transport_started
+  end
+
+  test "cmd_serve/2 works end-to-end with the real stdio transport and initialize request" do
+    test_pid = self()
+    Application.put_env(:designator_inator, :cli_pod_supervisor_module, StubPodSupervisor)
+    Application.put_env(:designator_inator, :mcp_gateway_module, ServeGatewayStub)
+    Application.put_env(:designator_inator, :mcp_stdio_stop_fun, fn _code ->
+      send(test_pid, :stdio_stop_called)
+      exit(:normal)
+    end)
+    Application.put_env(:designator_inator, :cli_test_pid, test_pid)
+
+    input = ~s({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n)
+
+    pod_path = Path.expand(@assistant_path)
+
+    output = capture_io(input, fn ->
+      assert :ok = CLI.cmd_serve([@assistant_path], [])
+    end)
+
+    assert output =~ ~s("protocolVersion":"2024-11-05")
+    assert output =~ ~s("serverInfo")
+    assert_receive {:start_pod, ^pod_path}
+    assert_receive :stdio_stop_called
   end
 
   test "chat_loop/2 uses the configured pod module and exits on /quit" do

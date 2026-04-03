@@ -9,7 +9,7 @@
   - CLI/escript: `designator-inator`
   - default config paths: `~/.designator_inator/...`
 - Milestone 2 is complete and verified.
-- Milestone 3 core pod packaging is largely implemented; CLI `run/list/stop/models` and chat loop are now wired and their targeted tests pass.
+- Milestone 3 core pod packaging is largely implemented; CLI `run/list/stop/models`, chat loop, and MCP `serve` stdio wiring are now wired and their targeted tests pass.
 - Fully implemented and verified so far:
   - `DesignatorInator.ModelInventory`
   - `DesignatorInator.Providers.LlamaCpp`
@@ -22,9 +22,12 @@
   - `DesignatorInator.Pod`
   - `DesignatorInator.PodSupervisor`
 - `DesignatorInator.ToolRegistry`
-- Milestone 4 MCP protocol + stdio transport basics are now implemented and tested; gateway routing, SSE, and CLI serve still remain.
-- Current targeted MCP tests pass: `test/designator_inator/mcp/protocol_test.exs` + `test/designator_inator/mcp/transport_stdio_test.exs` = 17 tests, 0 failures.
-- Full app startup is still not ready because later milestones (especially MCP integration) remain unfinished.
+- `DesignatorInator.MCPGateway`
+- `DesignatorInator.CLI.cmd_serve/2` stdio wiring
+- `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch basics
+- Milestone 4 is complete and verified.
+- Current targeted MCP/CLI/SSE tests pass: `test/designator_inator/mcp/protocol_test.exs`, `test/designator_inator/mcp/transport_stdio_test.exs`, `test/designator_inator/mcp_gateway_test.exs`, `test/designator_inator/cli_test.exs`, `test/designator_inator/mcp/transport_sse_test.exs` = 31 tests, 0 failures.
+- Next work is Milestone 5 cloud provider integration (`Providers.Anthropic`, `Providers.OpenAI`, and API key resolution).
 
 ## Toolchain / Environment
 
