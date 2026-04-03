@@ -22,6 +22,8 @@
   - `DesignatorInator.Pod`
   - `DesignatorInator.PodSupervisor`
 - `DesignatorInator.ToolRegistry`
+- Milestone 4 MCP protocol + stdio transport basics are now implemented and tested; gateway routing, SSE, and CLI serve still remain.
+- Current targeted MCP tests pass: `test/designator_inator/mcp/protocol_test.exs` + `test/designator_inator/mcp/transport_stdio_test.exs` = 17 tests, 0 failures.
 - Full app startup is still not ready because later milestones (especially MCP integration) remain unfinished.
 
 ## Toolchain / Environment
@@ -192,26 +194,25 @@ Updated [`designator_inator/test/support/fixtures.ex`](./designator_inator/test/
 
 ## Recommended Next Step
 
-Milestone 2 is complete. Next up is the remaining Milestone 3 work:
-- `Tools.Workspace.safe_path/2`
-- `Tools.Workspace` file ops + dispatch
-- `ToolRegistry.register/2` and `deregister/1`
-- CLI wiring for `run`, `list`, `stop`, and `models`
+Milestone 2 is complete. Milestone 3 is largely done. Next up is the remaining Milestone 4 work:
+- `MCPGateway.handle_call/3` for `tools/list` and `tools/call`
+- `CLI.cmd_serve/2`
+- SSE transport + token auth
+- multi-pod routing in the gateway
 
 Note on test status:
 - The full `mix test` suite is expected to stay partially red until later milestones are implemented.
-- For now, validate the milestone-specific test files and the module(s) you are actively changing.
+- For now, validate the milestone-specific MCP tests and the module(s) you are actively changing.
 
 Keep these targeted tests green while moving forward:
 
 ```bash
 cd /home/mike/projects/Designator-inator/designator_inator
-mix test test/designator_inator/model_inventory_test.exs \
-         test/designator_inator/providers/llama_cpp_test.exs \
-         test/designator_inator/model_manager_test.exs
+mix test test/designator_inator/mcp/protocol_test.exs \
+         test/designator_inator/mcp/transport_stdio_test.exs
 ```
 
-Then start adding Milestone 2 tests module-by-module before implementing each stub.
+Then continue adding Milestone 4 tests module-by-module before implementing each stub.
 
 ## Known Warnings
 
@@ -248,9 +249,6 @@ A code review pass found two spec deviations. Both are now fixed and all 32 Mile
 
 - [`plan.md`](./plan.md)
 - [`note.md`](./note.md)
-- [`designator_inator/lib/designator_inator/model_inventory.ex`](./designator_inator/lib/designator_inator/model_inventory.ex)
-- [`designator_inator/test/designator_inator/model_inventory_test.exs`](./designator_inator/test/designator_inator/model_inventory_test.exs)
-- [`designator_inator/lib/designator_inator/providers/llama_cpp.ex`](./designator_inator/lib/designator_inator/providers/llama_cpp.ex)
-- [`designator_inator/test/designator_inator/providers/llama_cpp_test.exs`](./designator_inator/test/designator_inator/providers/llama_cpp_test.exs)
-- [`designator_inator/lib/designator_inator/model_manager.ex`](./designator_inator/lib/designator_inator/model_manager.ex)
-- [`designator_inator/test/designator_inator/model_manager_test.exs`](./designator_inator/test/designator_inator/model_manager_test.exs)
+- [`designator_inator/lib/designator_inator/mcp/protocol.ex`](./designator_inator/lib/designator_inator/mcp/protocol.ex)
+- [`designator_inator/lib/designator_inator/mcp/transport/stdio.ex`](./designator_inator/lib/designator_inator/mcp/transport/stdio.ex)
+- [`designator_inator/test/designator_inator/mcp/transport_stdio_test.exs`](./designator_inator/test/designator_inator/mcp/transport_stdio_test.exs)

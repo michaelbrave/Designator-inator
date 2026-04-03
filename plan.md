@@ -265,8 +265,9 @@ designator-inator models                   # list available GGUFs
 
 **Goal:** Claude Desktop, Cursor, or any MCP client can talk to DesignatorInator pods.
 
+**Status: IN PROGRESS** — MCP JSON-RPC parsing/encoding and stdio transport basics are now implemented and tested; gateway routing, SSE, and CLI serve remain.
 **Scaffolding status: DONE**
-**Implementation status: NOT STARTED**
+**Implementation status: IN PROGRESS**
 
 ### Checklist
 
@@ -274,12 +275,12 @@ designator-inator models                   # list available GGUFs
 - [x] `MCP.Transport.Stdio` scaffolded (`mcp/transport/stdio.ex` — 4 stubs)
 - [x] `MCP.Transport.SSE` scaffolded (`mcp/transport/sse.ex` — Plug router + 3 stubs)
 - [x] `MCPGateway` scaffolded (`mcp_gateway.ex` — 2 stubs, routing for `initialize`, `initialized`, unknown methods implemented)
-- [ ] `MCP.Protocol.parse_message/1` implemented
-- [ ] `MCP.Protocol.encode_message/1` implemented
-- [ ] `MCP.Protocol.tools_to_mcp/1` implemented
-- [ ] `MCP.Transport.Stdio.read_message/0` implemented
-- [ ] `MCP.Transport.Stdio.read_loop/1` implemented
-- [ ] `MCP.Transport.Stdio` GenServer callbacks implemented
+- [x] `MCP.Protocol.parse_message/1` implemented
+- [x] `MCP.Protocol.encode_message/1` implemented
+- [x] `MCP.Protocol.tools_to_mcp/1` implemented
+- [x] `MCP.Transport.Stdio.read_message/0` implemented
+- [x] `MCP.Transport.Stdio.read_loop/1` implemented
+- [x] `MCP.Transport.Stdio` GenServer callbacks implemented
 - [ ] `MCPGateway.handle_call {:handle_request, tools/list}` implemented
 - [ ] `MCPGateway.handle_call {:handle_request, tools/call}` implemented
 - [ ] `CLI.cmd_serve/2` implemented
@@ -562,16 +563,16 @@ Everything after step 10 builds on a proven, working foundation.
 > This section is maintained by agents. Update it when you finish work.
 > Remove items you complete. Add items you discover during implementation.
 
-### Immediate — continue Milestone 3 / start Milestone 4 prep
+### Immediate — continue Milestone 4 implementation
 
-Milestone 2 is complete and verified. Milestone 3's core pod lifecycle and CLI commands are now wired; the remaining work is mostly MCP transport/server integration plus an end-to-end smoke test.
+Milestone 2 is complete and verified. Milestone 3's core pod lifecycle and CLI commands are wired; Milestone 4 is now underway with MCP protocol parsing/encoding and stdio transport basics implemented.
 
 **Immediate next steps:**
 
-1. Verify `designator-inator run ./examples/assistant/` as a smoke test and capture any remaining pod/CLI edge cases
-2. Implement `CLI.cmd_serve/2` when the MCP transports are ready
-3. Fill in `MCP.Protocol` parsing/encoding and the stdio transport callbacks
-4. Continue the HTDP unit-test-by-module workflow for the remaining Milestone 4 stubs
+1. Implement `MCPGateway.handle_call/3` for `tools/list` and `tools/call`
+2. Finish `CLI.cmd_serve/2` so MCP mode can be launched from the CLI
+3. Implement the SSE transport endpoints and token authentication
+4. Run the targeted MCP protocol/stdio tests and keep them green while filling remaining Milestone 4 stubs
 
 Proceed in the same HTDP unit-test-by-module fashion.
 

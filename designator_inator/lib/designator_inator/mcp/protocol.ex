@@ -65,7 +65,22 @@ defmodule DesignatorInator.MCP.Protocol do
     # 1. Jason.decode(json_string) → {:ok, map} | {:error, _} → :invalid_json
     # 2. Validate map["jsonrpc"] == "2.0" → :invalid_jsonrpc if not
     # 3. Build %MCPMessage{} from the map, converting types as needed
-    raise "not implemented"
+    with {:ok, map} <- Jason.decode(json_string),
+         true <- Map.get(map, "jsonrpc") == "2.0" do
+      {:ok,
+       %MCPMessage{
+         jsonrpc: "2.0",
+         id: Map.get(map, "id"),
+         method: Map.get(map, "method"),
+         params: Map.get(map, "params"),
+         result: Map.get(map, "result"),
+         error: parse_error(Map.get(map, "error"))
+       }}
+    else
+      {:error, _} -> {:error, :invalid_json}
+      false -> {:error, :invalid_jsonrpc}
+      nil -> {:error, :invalid_jsonrpc}
+    end
   end
 
   # ── Encoding ─────────────────────────────────────────────────────────────────
@@ -85,7 +100,11 @@ defmodule DesignatorInator.MCP.Protocol do
     # Template:
     # 1. Convert message to a map, dropping nil fields
     # 2. Jason.encode(map)
-    raise "not implemented"
+    message
+    |> Map.from_struct()
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+    |> maybe_encode_nested()
+    |> Jason.encode()
   end
 
   # ── Response builders ─────────────────────────────────────────────────────────
@@ -169,8 +188,68 @@ defmodule DesignatorInator.MCP.Protocol do
     # Convert each ToolDefinition to MCP tool format:
     # %{"name" => name, "description" => desc, "inputSchema" => json_schema_map}
     # where inputSchema is a JSON Schema object with "type": "object", "properties": {...}
-    raise "not implemented"
+    tools = Enum.map(tool_definitions, &tool_definition_to_mcp/1)
+    %{"tools" => tools}
   end
+
+  defp tool_definition_to_mcp(%ToolDefinition{name: name, description: description, parameters: parameters}) do
+    {properties, required} =
+      Enum.reduce(parameters, {%{}, []}, fn {param_name, schema}, {props_acc, req_acc} ->
+        {Map.put(props_acc, param_name, param_schema_to_json_schema(schema)), maybe_add_required(req_acc, param_name, schema)}
+      end)
+
+    input_schema =
+      %{"type" => "object", "properties" => properties}
+      |> maybe_put_required(required)
+
+    %{"name" => name, "description" => description, "inputSchema" => input_schema}
+  end
+
+  defp param_schema_to_json_schema(schema) when is_map(schema) do
+    Enum.reduce(schema, %{}, fn
+      {:type, type}, acc -> Map.put(acc, "type", param_type_to_json_schema(type))
+      {:required, _required}, acc -> acc
+      {:description, description}, acc when is_nil(description) -> acc
+      {:description, description}, acc -> Map.put(acc, "description", description)
+      {:enum, values}, acc when is_nil(values) -> acc
+      {:enum, values}, acc -> Map.put(acc, "enum", values)
+      {:default, default}, acc when is_nil(default) -> acc
+      {:default, default}, acc -> Map.put(acc, "default", default)
+      {key, value}, acc -> Map.put(acc, to_string(key), value)
+    end)
+  end
+
+  defp param_type_to_json_schema(type) when is_atom(type), do: Atom.to_string(type)
+  defp param_type_to_json_schema(type), do: type
+
+  defp maybe_add_required(required, param_name, schema) do
+    if Map.get(schema, :required, false), do: [param_name | required], else: required
+  end
+
+  defp maybe_put_required(map, []), do: map
+  defp maybe_put_required(map, required), do: Map.put(map, "required", Enum.reverse(required))
+
+  defp maybe_encode_nested(%MCPMessage{} = message), do: maybe_encode_nested(Map.from_struct(message))
+  defp maybe_encode_nested(%MCPError{} = error), do: error |> Map.from_struct() |> Map.reject(fn {_k, v} -> is_nil(v) end)
+
+  defp maybe_encode_nested(map) when is_map(map) do
+    map
+    |> Enum.map(fn {key, value} -> {key, maybe_encode_nested(value)} end)
+    |> Enum.into(%{})
+  end
+
+  defp maybe_encode_nested(list) when is_list(list), do: Enum.map(list, &maybe_encode_nested/1)
+  defp maybe_encode_nested(other), do: other
+
+  defp parse_error(nil), do: nil
+  defp parse_error(%{} = error) do
+    %MCPError{
+      code: Map.get(error, "code") || Map.get(error, :code),
+      message: Map.get(error, "message") || Map.get(error, :message),
+      data: Map.get(error, "data") || Map.get(error, :data)
+    }
+  end
+  defp parse_error(_), do: nil
 
   @doc """
   Wraps a tool result string in MCP `tools/call` response format.

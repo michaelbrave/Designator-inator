@@ -46,7 +46,8 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
   use GenServer
   require Logger
 
-  alias DesignatorInator.MCP.{Protocol, Gateway}
+  alias DesignatorInator.MCP.Protocol
+  alias DesignatorInator.Types.MCPMessage
 
   # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -67,7 +68,8 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     # Template:
     # 1. Start the reader task: Task.start_link(fn -> read_loop(self()) end)
     # 2. Return {:ok, %{reader_pid: task_pid}}
-    raise "not implemented"
+    {:ok, reader_pid} = Task.start_link(fn -> read_loop(self()) end)
+    {:ok, %{reader_pid: reader_pid}}
   end
 
   @impl GenServer
@@ -77,7 +79,30 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     # 2. On {:ok, msg}: dispatch to MCPGateway.handle_request(msg)
     # 3. Encode response and write_message(response_json)
     # 4. On {:error, :invalid_json}: write a parse error response
-    raise "not implemented"
+    case Protocol.parse_message(json_string) do
+      {:ok, %MCPMessage{} = msg} ->
+        case gateway_module().handle_request(msg) do
+          %MCPMessage{} = response ->
+            {:ok, response_json} = Protocol.encode_message(response)
+            write_message(response_json)
+            {:noreply, state}
+
+          nil ->
+            {:noreply, state}
+        end
+
+      {:error, :invalid_json} ->
+        response = Protocol.make_error(nil, -32700, "Parse error")
+        {:ok, response_json} = Protocol.encode_message(response)
+        write_message(response_json)
+        {:noreply, state}
+
+      {:error, :invalid_jsonrpc} ->
+        response = Protocol.make_error(nil, -32600, "Invalid Request")
+        {:ok, response_json} = Protocol.encode_message(response)
+        write_message(response_json)
+        {:noreply, state}
+    end
   end
 
   @impl GenServer
@@ -107,7 +132,10 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     # Template:
     # IO.gets("") returns a string with a trailing newline, or :eof
     # String.trim the newline and return {:ok, trimmed} or :eof
-    raise "not implemented"
+    case IO.gets(:stdio, "") do
+      :eof -> :eof
+      data when is_binary(data) -> {:ok, String.trim_trailing(data)}
+    end
   end
 
   @doc """
@@ -123,6 +151,10 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     IO.puts(json_string)
   end
 
+  defp gateway_module do
+    Application.get_env(:designator_inator, :mcp_gateway_module, DesignatorInator.MCPGateway)
+  end
+
   @doc false
   @spec read_loop(pid()) :: no_return()
   def read_loop(parent_pid) do
@@ -132,6 +164,18 @@ defmodule DesignatorInator.MCP.Transport.Stdio do
     # 2. On {:ok, json}: send(parent_pid, {:mcp_message, json}), loop
     # 3. On :eof: send(parent_pid, :eof), exit(:normal)
     # 4. On {:error, reason}: log and continue
-    raise "not implemented"
+    case read_message() do
+      {:ok, json} ->
+        send(parent_pid, {:mcp_message, json})
+        read_loop(parent_pid)
+
+      :eof ->
+        send(parent_pid, :eof)
+        exit(:normal)
+
+      {:error, reason} ->
+        Logger.warning("MCP stdio read error: #{inspect(reason)}")
+        read_loop(parent_pid)
+    end
   end
 end
