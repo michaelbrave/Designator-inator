@@ -47,9 +47,11 @@ defmodule DesignatorInator.Pod do
   use GenServer
   require Logger
 
-  alias DesignatorInator.Types.{PodState, PodManifest, Message}
-  alias DesignatorInator.{ReActLoop, Memory, ModelManager, ToolRegistry}
-  alias DesignatorInator.Pod.{Manifest, Config}
+  alias DesignatorInator.Types.{PodState, Message}
+  alias DesignatorInator.{ReActLoop, Memory, ModelManager}
+  alias DesignatorInator.Pod.{Config}
+
+  @workspace_dir_default Path.expand("~/.designator_inator/workspaces")
 
   # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -64,7 +66,6 @@ defmodule DesignatorInator.Pod do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
-    path = Keyword.fetch!(opts, :path)
     manifest = Keyword.fetch!(opts, :manifest)
     GenServer.start_link(__MODULE__, opts, name: via(manifest.name))
   end
@@ -91,6 +92,7 @@ defmodule DesignatorInator.Pod do
     case lookup(pod_name) do
       {:ok, pid} ->
         GenServer.call(pid, {:chat, user_message, session_id}, 130_000)
+
       {:error, :not_found} ->
         {:error, :pod_not_found}
     end
@@ -116,6 +118,7 @@ defmodule DesignatorInator.Pod do
     case lookup(pod_name) do
       {:ok, pid} ->
         GenServer.call(pid, {:call_tool, tool_name, params}, 130_000)
+
       {:error, :not_found} ->
         {:error, :pod_not_found}
     end
@@ -170,7 +173,14 @@ defmodule DesignatorInator.Pod do
   @spec lookup(String.t()) :: {:ok, pid()} | {:error, :not_found}
   def lookup(pod_name) do
     case Registry.lookup(DesignatorInator.PodRegistry, pod_name) do
-      [{pid, _}] -> {:ok, pid}
+      [{pid, _}] ->
+        if Process.alive?(pid) do
+          {:ok, pid}
+        else
+          Registry.unregister(DesignatorInator.PodRegistry, pod_name)
+          {:error, :not_found}
+        end
+
       [] -> {:error, :not_found}
     end
   end
@@ -179,44 +189,104 @@ defmodule DesignatorInator.Pod do
 
   @impl GenServer
   def init(opts) do
-    # Template (HTDP step 4):
-    # 1. Extract path, manifest from opts
-    # 2. Load soul.md: File.read!(Path.join(path, "soul.md"))
-    # 3. Load config: Config.load(Path.join(path, "config.yaml"))
-    # 4. Resolve workspace dir: Path.join(workspaces_dir, manifest.name)
-    # 5. File.mkdir_p! workspace dir
-    # 6. Set up file_system watcher for soul.md
-    # 7. Register exposed tools in ToolRegistry
-    # 8. Register in SwarmRegistry
-    # 9. Build initial %PodState{} with status: :loading
-    # 10. Request model from ModelManager asynchronously (send self :load_model)
-    # 11. Return {:ok, state}
-    raise "not implemented"
+    path = Keyword.fetch!(opts, :path)
+    manifest = Keyword.fetch!(opts, :manifest)
+    config =
+      case Keyword.get(opts, :config) do
+        nil ->
+          case Config.load(Path.join(path, "config.yaml")) do
+            {:ok, loaded} -> loaded
+            {:error, _} -> %Config{}
+          end
+
+        loaded ->
+          loaded
+      end
+
+    soul_path = Path.join(path, "soul.md")
+    soul = read_soul(soul_path)
+    workspace_root = workspace_root(manifest.name)
+    File.mkdir_p!(workspace_root)
+
+    model = resolve_model(manifest, config)
+
+    state = %PodState{
+      name: manifest.name,
+      path: Path.expand(path),
+      manifest: manifest,
+      soul: soul,
+      status: :loading,
+      model: model,
+      workspace: workspace_root,
+      config: config,
+      started_at: DateTime.utc_now()
+    }
+
+    if Process.whereis(ModelManager) do
+      send(self(), :load_model)
+    end
+
+    {:ok, state}
   end
 
   @impl GenServer
   def handle_call({:chat, user_message, session_id}, _from, state) do
-    # Template (HTDP step 4):
-    # 1. Resolve or generate session_id
-    # 2. Set state.status = :running
-    # 3. Load history from Memory.load_history/3
-    # 4. Build messages: [system_msg | history] ++ [%Message{role: :user, content: user_message}]
-    # 5. Build tool list from manifest.internal_tools
-    # 6. Call ReActLoop.run/5
-    # 7. Save all new messages to Memory
-    # 8. Set state.status = :idle
-    # 9. Return {:reply, {:ok, result, session_id}, new_state}
-    raise "not implemented"
+    session_id = session_id || Memory.new_session_id()
+    system_message = %Message{role: :system, content: state.soul}
+    history = Memory.load_history(state.name, session_id, state.config.max_history || 20)
+    messages = [system_message | history] ++ [%Message{role: :user, content: user_message}]
+
+    tool_executor = fn call ->
+      call.arguments
+      |> Map.put("_workspace_root", state.workspace)
+      |> Map.put("_pod_name", state.name)
+      |> execute_internal_tool(call.name)
+    end
+
+    inference_fn = fn msgs, opts ->
+      model_opts = [model: state.model, temperature: state.config.temperature, max_tokens: state.config.max_tokens]
+      model_opts = Keyword.merge(model_opts, opts)
+      ModelManager.complete(msgs, model_opts)
+    end
+
+    result =
+      ReActLoop.run(messages, internal_tools(state.manifest), tool_executor, inference_fn,
+        pod_name: state.name,
+        session_id: session_id,
+        tool_call_format: state.config.tool_call_format,
+        max_iterations: 20
+      )
+
+    case result do
+      {:ok, answer} ->
+        {:reply, {:ok, answer, session_id}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   @impl GenServer
   def handle_call({:call_tool, tool_name, params}, _from, state) do
-    # Template (HTDP step 4):
-    # 1. Verify tool_name is in manifest.exposed_tools — return {:error, :tool_not_found} if not
-    # 2. Build a synthetic user message: "Call tool #{tool_name} with #{Jason.encode!(params)}"
-    # 3. Run via ReActLoop (the pod decides HOW to fulfill the tool — it may use internal tools)
-    # 4. Return {:reply, {:ok, result}, state}
-    raise "not implemented"
+    if tool_name in exposed_tool_names(state.manifest) do
+      case tool_name do
+        "chat" ->
+          message = Map.get(params, "message", "")
+          session_id = Map.get(params, "session_id")
+          {:reply, chat(state.name, message, session_id), state}
+
+        "get_status" ->
+          {:reply, {:ok, status_text(state)}, state}
+
+        "halt" ->
+          {:reply, :ok, %{state | status: :idle, current_task_id: nil}}
+
+        _ ->
+          {:reply, {:error, :unsupported_tool}, state}
+      end
+    else
+      {:reply, {:error, :tool_not_found}, state}
+    end
   end
 
   @impl GenServer
@@ -226,23 +296,67 @@ defmodule DesignatorInator.Pod do
 
   @impl GenServer
   def handle_call(:halt, _from, state) do
-    # Template: Cancel current task if running, set status to :idle
     {:reply, :ok, %{state | status: :idle, current_task_id: nil}}
   end
 
   @impl GenServer
   def handle_info({:file_event, _watcher_pid, {path, _events}}, state) do
-    # Template: If path ends in "soul.md", re-read and update state.soul
-    raise "not implemented"
+    if Path.basename(path) == "soul.md" do
+      {:noreply, %{state | soul: read_soul(path)}}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl GenServer
   def handle_info(:load_model, state) do
-    # Template:
-    # 1. Call ModelManager.load_model(state.manifest.model.primary)
-    # 2. On :ok: update state.status to :idle
-    # 3. On error with fallback: try fallback model
-    # 4. On failure: set state.status to :error, log
-    raise "not implemented"
+    case ModelManager.load_model(state.model) do
+      :ok -> {:noreply, %{state | status: :idle}}
+      {:error, reason} ->
+        Logger.warning("Failed to load model #{state.model}: #{inspect(reason)}")
+        {:noreply, %{state | status: :error}}
+    end
+  end
+
+  defp internal_tools(%{internal_tools: internal_tool_names}) do
+    Enum.flat_map(internal_tool_names, fn
+      "workspace" -> [DesignatorInator.Tools.Workspace]
+      _ -> []
+    end)
+    |> Enum.map(&DesignatorInator.Tool.to_definition/1)
+  end
+
+  defp exposed_tool_names(%{exposed_tools: tools}) do
+    Enum.map(tools, & &1.name)
+  end
+
+  defp execute_internal_tool("workspace", params) do
+    DesignatorInator.Tools.Workspace.call(params)
+  end
+
+  defp execute_internal_tool(_name, _params), do: {:error, "Unsupported internal tool"}
+
+  defp read_soul(path) do
+    case File.read(path) do
+      {:ok, text} -> text
+      {:error, _} -> ""
+    end
+  end
+
+  defp workspace_root(pod_name) do
+    Application.get_env(:designator_inator, :workspaces_dir, @workspace_dir_default)
+    |> Path.join(pod_name)
+  end
+
+  defp resolve_model(manifest, config) do
+    cond do
+      config.model && is_binary(config.model.primary) -> config.model.primary
+      is_binary(manifest.model.primary) -> manifest.model.primary
+      true -> manifest.name
+    end
+  end
+
+  defp status_text(%PodState{} = state) do
+    "#{state.status}"
   end
 end

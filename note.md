@@ -8,12 +8,20 @@
   - OTP app: `:designator_inator`
   - CLI/escript: `designator-inator`
   - default config paths: `~/.designator_inator/...`
-- Milestone 1 is in progress.
+- Milestone 2 is complete and verified.
+- Milestone 3 core pod packaging is now largely implemented and the targeted pod tests pass.
 - Fully implemented and verified so far:
   - `DesignatorInator.ModelInventory`
   - `DesignatorInator.Providers.LlamaCpp`
   - `DesignatorInator.ModelManager`
-- Full app startup is still not ready because several later modules remain stubbed (Milestone 2+).
+  - `DesignatorInator.Memory`
+  - `DesignatorInator.ToolCallParser`
+  - `DesignatorInator.ReActLoop`
+  - `DesignatorInator.Pod.Manifest`
+  - `DesignatorInator.Pod.Config`
+  - `DesignatorInator.Pod`
+  - `DesignatorInator.PodSupervisor`
+- Full app startup is still not ready because later milestones (especially MCP integration) remain unfinished.
 
 ## Toolchain / Environment
 
@@ -183,10 +191,11 @@ Updated [`designator_inator/test/support/fixtures.ex`](./designator_inator/test/
 
 ## Recommended Next Step
 
-Milestone 1 integration is complete. Next up is Milestone 2:
+Milestone 2 is complete. Next up is the remaining Milestone 3 work:
 - `Tools.Workspace.safe_path/2`
 - `Tools.Workspace` file ops + dispatch
-- `Memory` persistence functions
+- `ToolRegistry.register/2` and `deregister/1`
+- CLI wiring for `run`, `list`, `stop`, and `models`
 
 Note on test status:
 - The full `mix test` suite is expected to stay partially red until later milestones are implemented.

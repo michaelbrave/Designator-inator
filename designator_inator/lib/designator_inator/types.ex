@@ -481,8 +481,9 @@ defmodule DesignatorInator.Types.PodState do
   | `status`           | `pod_status()`      | Current lifecycle status                           |
   | `model`            | `String.t()`        | Resolved model name in use                         |
   | `workspace`        | `Path.t()`          | Absolute path to this pod's workspace dir          |
+  | `config`           | `Config.t()`        | Pod runtime configuration                         |
   | `started_at`       | `DateTime.t()`      | When the pod was started                           |
-  | `current_task_id`  | `String.t() \\| nil` | ID of the task currently being worked on          |
+  | `current_task_id`  | `String.t() \| nil` | ID of the task currently being worked on          |
   | `consecutive_errors`| `non_neg_integer()` | Consecutive inference failures (triggers fallback)|
 
   ### pod_status values
@@ -515,6 +516,7 @@ defmodule DesignatorInator.Types.PodState do
           status: pod_status(),
           model: String.t(),
           workspace: Path.t(),
+          config: DesignatorInator.Pod.Config.t() | nil,
           started_at: DateTime.t(),
           current_task_id: String.t() | nil,
           consecutive_errors: non_neg_integer()
@@ -527,6 +529,7 @@ defmodule DesignatorInator.Types.PodState do
     :soul,
     :model,
     :workspace,
+    :config,
     :started_at,
     status: :loading,
     current_task_id: nil,

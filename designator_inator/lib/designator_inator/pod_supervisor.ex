@@ -38,8 +38,8 @@ defmodule DesignatorInator.PodSupervisor do
   use DynamicSupervisor
   require Logger
 
+  alias DesignatorInator.Pod
   alias DesignatorInator.Pod.Manifest
-  alias DesignatorInator.Types.PodManifest
 
   # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -73,15 +73,18 @@ defmodule DesignatorInator.PodSupervisor do
   """
   @spec start_pod(Path.t()) :: {:ok, pid()} | {:error, term()}
   def start_pod(path) do
-    # Template (HTDP step 4):
-    # 1. path = Path.expand(path)
-    # 2. manifest_path = Path.join(path, "manifest.yaml")
-    # 3. Manifest.load(manifest_path) → {:ok, manifest} | {:error, reason}
-    # 4. Manifest.check_hardware(manifest) — log warning on failure, don't abort
-    # 5. Check if pod already running: Pod.lookup(manifest.name) → {:ok, _} = already started
-    # 6. child_spec = {DesignatorInator.Pod, path: path, manifest: manifest}
-    # 7. DynamicSupervisor.start_child(__MODULE__, child_spec)
-    raise "not implemented"
+    path = Path.expand(path)
+    manifest_path = Path.join(path, "manifest.yaml")
+
+    with {:ok, manifest} <- Manifest.load(manifest_path),
+         :ok <- maybe_warn_hardware(manifest),
+         {:error, :not_found} <- Pod.lookup(manifest.name) do
+      child_spec = {Pod, path: path, manifest: manifest}
+      DynamicSupervisor.start_child(__MODULE__, child_spec)
+    else
+      {:ok, _pid} -> {:error, :already_started}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -100,10 +103,14 @@ defmodule DesignatorInator.PodSupervisor do
   """
   @spec stop_pod(String.t()) :: :ok | {:error, :not_found}
   def stop_pod(pod_name) do
-    # Template (HTDP step 4):
-    # 1. Pod.lookup(pod_name) → {:ok, pid} | {:error, :not_found}
-    # 2. DynamicSupervisor.terminate_child(__MODULE__, pid)
-    raise "not implemented"
+    case Pod.lookup(pod_name) do
+      {:ok, pid} ->
+        :ok = DynamicSupervisor.terminate_child(__MODULE__, pid)
+        :ok
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+    end
   end
 
   @doc """
@@ -119,11 +126,16 @@ defmodule DesignatorInator.PodSupervisor do
   """
   @spec list_pods() :: [%{name: String.t(), status: atom(), pid: pid()}]
   def list_pods do
-    # Template (HTDP step 4):
-    # 1. Registry.select(DesignatorInator.PodRegistry, [{:"$1", [], [:"$1"]}]) → list of {name, pid, _}
-    # 2. For each: call Pod.get_status(name) to get current status
-    # 3. Return list of maps
-    raise "not implemented"
+    Registry.select(DesignatorInator.PodRegistry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2"}}]}])
+    |> Enum.map(fn {name, pid} ->
+      status =
+        case Pod.get_status(name) do
+          {:ok, %{status: pod_status}} -> pod_status
+          _ -> :unknown
+        end
+
+      %{name: name, status: status, pid: pid}
+    end)
   end
 
   # ── DynamicSupervisor callbacks ──────────────────────────────────────────────
@@ -131,5 +143,14 @@ defmodule DesignatorInator.PodSupervisor do
   @impl DynamicSupervisor
   def init(_opts) do
     DynamicSupervisor.init(strategy: :one_for_one)
+  end
+
+  defp maybe_warn_hardware(manifest) do
+    case Manifest.check_hardware(manifest) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.warning("Pod #{manifest.name} hardware check failed: #{reason}")
+        :ok
+    end
   end
 end

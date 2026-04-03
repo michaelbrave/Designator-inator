@@ -38,7 +38,7 @@ defmodule DesignatorInator.Pod.Manifest do
       {:error, ["name is required", "exposed_tools must not be empty"]}
   """
 
-  alias DesignatorInator.Types.{PodManifest, ResourceRequirements, ModelPreference, ToolDefinition}
+  alias DesignatorInator.Types.{ModelPreference, PodManifest, ResourceRequirements, ToolDefinition}
 
   # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -61,11 +61,14 @@ defmodule DesignatorInator.Pod.Manifest do
   """
   @spec load(Path.t()) :: {:ok, PodManifest.t()} | {:error, term()}
   def load(path) do
-    # Template (HTDP step 4):
-    # 1. File.read(path) — return {:error, :enoent} etc. on failure
-    # 2. YamlElixir.read_from_string(content) — return {:error, {:yaml_parse, reason}} on failure
-    # 3. Call parse(raw_map)
-    raise "not implemented"
+    with {:ok, content} <- File.read(path),
+         {:ok, raw} <- YamlElixir.read_from_string(content),
+         {:ok, manifest} <- parse(raw) do
+      {:ok, manifest}
+    else
+      {:error, :enoent} -> {:error, :enoent}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """
@@ -88,15 +91,29 @@ defmodule DesignatorInator.Pod.Manifest do
   """
   @spec parse(map()) :: {:ok, PodManifest.t()} | {:error, [String.t()]}
   def parse(raw) when is_map(raw) do
-    # Template (HTDP step 4):
-    # 1. Collect all validation errors by calling validate_required/2 for each required field
-    # 2. If errors non-empty: return {:error, errors}
-    # 3. Parse each sub-section:
-    #    - parse_requires(raw["requires"])   → ResourceRequirements.t()
-    #    - parse_model(raw["model"])         → ModelPreference.t()
-    #    - parse_tools(raw["exposed_tools"]) → [ToolDefinition.t()]
-    # 4. Build %PodManifest{} struct and return {:ok, manifest}
-    raise "not implemented"
+    errors =
+      []
+      |> validate_required(raw, "name")
+      |> validate_required(raw, "version")
+      |> validate_required(raw, "description")
+      |> validate_exposed_tools(raw)
+
+    if errors == [] do
+      manifest = %PodManifest{
+        name: fetch_string!(raw, "name"),
+        version: fetch_string!(raw, "version"),
+        description: fetch_string!(raw, "description"),
+        requires: parse_requires(Map.get(raw, "requires")),
+        model: parse_model(Map.get(raw, "model")),
+        exposed_tools: parse_tools(Map.get(raw, "exposed_tools", [])),
+        internal_tools: parse_string_list(Map.get(raw, "internal_tools", [])),
+        isolation: parse_isolation(Map.get(raw, "isolation", "beam"))
+      }
+
+      {:ok, manifest}
+    else
+      {:error, Enum.reverse(errors)}
+    end
   end
 
   @doc """
@@ -120,14 +137,18 @@ defmodule DesignatorInator.Pod.Manifest do
   """
   @spec check_hardware(PodManifest.t()) :: :ok | {:error, String.t()}
   def check_hardware(%PodManifest{} = manifest) do
-    # Template (HTDP step 4):
-    # 1. Read available RAM via :memsup.get_memory_data() or parse /proc/meminfo
-    # 2. If manifest.requires.min_ram_mb > available_ram_mb:
-    #    return {:error, "Insufficient RAM: need #{req} MB, have ~#{avail} MB"}
-    # 3. If manifest.requires.gpu == :required and no GPU detected:
-    #    return {:error, "GPU required but none detected"}
-    # 4. Return :ok
-    raise "not implemented"
+    available_ram_mb = available_ram_mb()
+
+    cond do
+      manifest.requires.min_ram_mb > available_ram_mb ->
+        {:error, "Insufficient RAM: need #{manifest.requires.min_ram_mb} MB, have ~#{available_ram_mb} MB"}
+
+      manifest.requires.gpu == :required and not gpu_present?() ->
+        {:error, "GPU required but none detected"}
+
+      true ->
+        :ok
+    end
   end
 
   # ── Private parsers ──────────────────────────────────────────────────────────
@@ -137,10 +158,11 @@ defmodule DesignatorInator.Pod.Manifest do
   def parse_requires(nil), do: %ResourceRequirements{}
 
   def parse_requires(raw) when is_map(raw) do
-    # Template:
-    # Build %ResourceRequirements{} from raw map, applying defaults for missing fields
-    # Parse gpu: "required" | "optional" | "none" string → atom
-    raise "not implemented"
+    %ResourceRequirements{
+      min_ram_mb: fetch_integer(raw, "min_ram_mb", 0),
+      min_context: fetch_integer(raw, "min_context", 2048),
+      gpu: parse_gpu(Map.get(raw, "gpu", "optional"))
+    }
   end
 
   @doc false
@@ -148,17 +170,140 @@ defmodule DesignatorInator.Pod.Manifest do
   def parse_model(nil), do: %ModelPreference{}
 
   def parse_model(raw) when is_map(raw) do
-    # Template:
-    # Build %ModelPreference{} from raw map
-    # Parse fallback_mode: "auto" | "manual" | "disabled" string → atom
-    raise "not implemented"
+    %ModelPreference{
+      primary: fetch_string(raw, "primary", nil),
+      fallback: fetch_string(raw, "fallback", nil),
+      fallback_mode: parse_fallback_mode(Map.get(raw, "fallback_mode", "disabled")),
+      recommended: fetch_string(raw, "recommended", nil),
+      minimum: fetch_string(raw, "minimum", nil)
+    }
   end
 
   @doc false
   @spec parse_tools([map()]) :: [ToolDefinition.t()]
   def parse_tools(tools) when is_list(tools) do
-    # Template:
-    # Map each map to a %ToolDefinition{}, parsing parameters sub-map
-    raise "not implemented"
+    Enum.map(tools, fn tool ->
+      %ToolDefinition{
+        name: fetch_string!(tool, "name"),
+        description: fetch_string!(tool, "description"),
+        parameters: parse_parameters(Map.get(tool, "parameters", %{}))
+      }
+    end)
+  end
+
+  defp validate_required(errors, raw, key) do
+    case Map.get(raw, key) do
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: ["#{key} is required" | errors], else: errors
+
+      _ ->
+        ["#{key} is required" | errors]
+    end
+  end
+
+  defp validate_exposed_tools(errors, raw) do
+    case Map.get(raw, "exposed_tools") do
+      list when is_list(list) and list != [] -> errors
+      _ -> ["exposed_tools must not be empty" | errors]
+    end
+  end
+
+  defp fetch_string!(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      other -> raise ArgumentError, "expected #{key} to be a string, got #{inspect(other)}"
+    end
+  end
+
+  defp fetch_string(map, key, default) do
+    case Map.get(map, key, default) do
+      nil -> nil
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      other -> to_string(other)
+    end
+  end
+
+  defp fetch_integer(map, key, default) do
+    case Map.get(map, key, default) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_binary(value) -> String.to_integer(value)
+      _ -> default
+    end
+  end
+
+  defp parse_string_list(list) when is_list(list), do: Enum.map(list, &to_string/1)
+  defp parse_string_list(_), do: []
+
+  defp parse_parameters(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      schema =
+        value
+        |> normalize_keys()
+        |> Map.put_new(:required, false)
+        |> Map.update(:type, :string, &normalize_type/1)
+        |> Map.update(:description, nil, &normalize_optional_string/1)
+        |> Map.update(:enum, nil, &parse_enum/1)
+
+      Map.put(acc, to_string(key), schema)
+    end)
+  end
+
+  defp parse_parameters(_), do: %{}
+
+  defp normalize_keys(map) when is_map(map) do
+    Enum.into(map, %{}, fn {k, v} -> {normalize_key(k), v} end)
+  end
+
+  defp normalize_key(key) when is_atom(key), do: key
+  defp normalize_key(key), do: String.to_atom(to_string(key))
+
+  defp normalize_type(type) when is_atom(type), do: type
+  defp normalize_type(type), do: String.to_atom(to_string(type))
+
+  defp normalize_optional_string(nil), do: nil
+  defp normalize_optional_string(value), do: to_string(value)
+
+  defp parse_enum(nil), do: nil
+  defp parse_enum(list) when is_list(list), do: Enum.map(list, &to_string/1)
+  defp parse_enum(value), do: [to_string(value)]
+
+  defp parse_gpu("required"), do: :required
+  defp parse_gpu("none"), do: :none
+  defp parse_gpu(_), do: :optional
+
+  defp parse_fallback_mode("auto"), do: :auto
+  defp parse_fallback_mode("manual"), do: :manual
+  defp parse_fallback_mode("disabled"), do: :disabled
+  defp parse_fallback_mode(_), do: :disabled
+
+  defp parse_isolation("container"), do: :container
+  defp parse_isolation(_), do: :beam
+
+  defp available_ram_mb do
+    if function_exported?(:memsup, :get_system_memory_data, 0) do
+      case apply(:memsup, :get_system_memory_data, []) do
+        {:ok, data} ->
+          case Keyword.get(data, :total_memory) || Keyword.get(data, :memory_total) do
+            bytes when is_integer(bytes) and bytes > 0 -> div(bytes, 1024 * 1024)
+            _ -> 8_192
+          end
+
+        _ ->
+          8_192
+      end
+    else
+      8_192
+    end
+  end
+
+  defp gpu_present? do
+    case System.get_env("CUDA_VISIBLE_DEVICES") do
+      nil -> false
+      "" -> false
+      "-1" -> false
+      _ -> true
+    end
   end
 end

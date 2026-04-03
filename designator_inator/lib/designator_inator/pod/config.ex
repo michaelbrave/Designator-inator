@@ -74,12 +74,14 @@ defmodule DesignatorInator.Pod.Config do
   """
   @spec load(Path.t()) :: {:ok, t()}
   def load(path) do
-    # Template (HTDP step 4):
-    # 1. Load global config from ~/.designator_inator/config.yaml via load_file/1 (defaults to %{} if missing)
-    # 2. Load pod config from path via load_file/1 (defaults to %{} if missing)
-    # 3. Deep-merge: global_raw |> Map.merge(pod_raw)
-    # 4. Parse merged map into %Config{} via parse/1
-    raise "not implemented"
+    global_path = Path.expand("~/.designator_inator/config.yaml")
+
+    {:ok, global_raw} = load_file_or_empty(global_path)
+    {:ok, pod_raw} = load_file_or_empty(path)
+
+    merged = deep_merge(global_raw, pod_raw)
+
+    parse(merged)
   end
 
   @doc """
@@ -104,20 +106,144 @@ defmodule DesignatorInator.Pod.Config do
   """
   @spec resolve_api_key(atom(), t()) :: {:ok, String.t()} | {:error, :no_api_key}
   def resolve_api_key(provider, %__MODULE__{} = config) do
-    # Template (HTDP step 4):
-    # 1. Check config.providers[provider][:api_key_env] → System.get_env(env_var_name)
-    # 2. Fall back to conventional env var name:
-    #    :anthropic → "ANTHROPIC_API_KEY"
-    #    :openai    → "OPENAI_API_KEY"
-    # 3. If env var found and non-empty: {:ok, value}
-    # 4. Otherwise: {:error, :no_api_key}
-    raise "not implemented"
+    configured_env = get_in(config.providers, [provider, :api_key_env])
+
+    configured_env
+    |> List.wrap()
+    |> Enum.concat([conventional_env_var(provider)])
+    |> Enum.find_value(fn env_var ->
+      case System.get_env(env_var) do
+        value when is_binary(value) and value != "" -> {:ok, value}
+        _ -> nil
+      end
+    end) || {:error, :no_api_key}
   end
 
   @doc false
   @spec parse(map()) :: {:ok, t()}
   def parse(raw) when is_map(raw) do
-    # Template: Build %Config{} from raw map, applying defaults for missing fields
-    raise "not implemented"
+    model =
+      case Map.get(raw, "model") do
+        nil -> nil
+        value -> parse_model(value)
+      end
+
+    inference = Map.get(raw, "inference", %{})
+    memory = Map.get(raw, "memory", %{})
+    providers = parse_providers(Map.get(raw, "providers", %{}))
+
+    {:ok,
+     %__MODULE__{
+       model: model,
+       temperature: fetch_float(inference, "temperature", 0.7),
+       max_tokens: fetch_integer(inference, "max_tokens", 4096),
+       max_history: fetch_integer(memory, "max_history_turns", 20),
+       tool_call_format: parse_tool_call_format(Map.get(inference, "tool_call_format", "llama3")),
+       providers: providers
+     }}
   end
+
+  defp load_file_or_empty(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        case YamlElixir.read_from_string(content) do
+          {:ok, raw} when is_map(raw) -> {:ok, raw}
+          {:ok, _} -> {:error, {:yaml_parse, :not_a_map}}
+          {:error, reason} -> {:error, {:yaml_parse, reason}}
+        end
+
+      {:error, :enoent} -> {:ok, %{}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp deep_merge(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _k, left_val, right_val ->
+      if is_map(left_val) and is_map(right_val) do
+        deep_merge(left_val, right_val)
+      else
+        right_val
+      end
+    end)
+  end
+
+  defp deep_merge(_left, right), do: right
+
+  defp parse_model(raw) when is_map(raw) do
+    %ModelPreference{
+      primary: fetch_string(raw, "primary", nil),
+      fallback: fetch_string(raw, "fallback", nil),
+      fallback_mode: parse_fallback_mode(Map.get(raw, "fallback_mode", "disabled")),
+      recommended: fetch_string(raw, "recommended", nil),
+      minimum: fetch_string(raw, "minimum", nil)
+    }
+  end
+
+  defp parse_providers(raw) when is_map(raw) do
+    Enum.reduce(raw, %{}, fn {provider, value}, acc ->
+      provider_atom = normalize_provider(provider)
+      env =
+        case value do
+          %{"api_key_env" => env} when is_binary(env) -> env
+          %{api_key_env: env} when is_binary(env) -> env
+          _ -> nil
+        end
+
+      Map.put(acc, provider_atom, %{api_key_env: env})
+    end)
+  end
+
+  defp parse_providers(_), do: %{}
+
+  defp fetch_integer(map, key, default) do
+    case Map.get(map, key, default) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed >= 0 -> parsed
+          _ -> default
+        end
+
+      _ -> default
+    end
+  end
+
+  defp fetch_float(map, key, default) do
+    case Map.get(map, key, default) do
+      value when is_float(value) -> value
+      value when is_integer(value) -> value / 1
+      value when is_binary(value) ->
+        case Float.parse(value) do
+          {parsed, ""} -> parsed
+          _ -> default
+        end
+
+      _ -> default
+    end
+  end
+
+  defp fetch_string(map, key, default) do
+    case Map.get(map, key, default) do
+      nil -> nil
+      value when is_binary(value) -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      other -> to_string(other)
+    end
+  end
+
+  defp parse_fallback_mode("auto"), do: :auto
+  defp parse_fallback_mode("manual"), do: :manual
+  defp parse_fallback_mode("disabled"), do: :disabled
+  defp parse_fallback_mode(_), do: :disabled
+
+  defp parse_tool_call_format("chatml"), do: :chatml
+  defp parse_tool_call_format("llama3"), do: :llama3
+  defp parse_tool_call_format(_), do: :llama3
+
+  defp conventional_env_var(:anthropic), do: "ANTHROPIC_API_KEY"
+  defp conventional_env_var(:openai), do: "OPENAI_API_KEY"
+  defp conventional_env_var(provider), do: "#{provider |> to_string() |> String.upcase()}_API_KEY"
+
+  defp normalize_provider(provider) when is_atom(provider), do: provider
+  defp normalize_provider(provider), do: provider |> to_string() |> String.to_existing_atom()
 end
