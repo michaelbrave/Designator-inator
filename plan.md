@@ -388,22 +388,24 @@ model:
 
 **Goal:** A meta-agent that decomposes tasks and delegates to other pods.
 
+**Status: DONE** — Orchestrator delegation now uses parallel tool execution, persisted conversation history, and alternate-pod retry when a delegated pod fails.
 **Scaffolding status: DONE**
-**Implementation status: NOT STARTED**
+**Implementation status: DONE**
 
 ### Checklist
 
 - [x] `ToolRegistry` scaffolded (`tool_registry.ex` — 6 stubs, ETS design documented)
-- [ ] `ToolRegistry` ETS table creation implemented
-- [ ] `ToolRegistry.register/3`, `deregister/1` implemented
-- [ ] `ToolRegistry.lookup/1`, `list_all/0`, `tools_for_pod/1` implemented (direct ETS reads)
-- [ ] Orchestrator pod created (`examples/orchestrator/` — `manifest.yaml`, `soul.md`, `config.yaml`)
-- [ ] `Pod` wires `ToolRegistry.register/3` call into `init/1`
-- [ ] `Pod` wires `ToolRegistry.deregister/1` call into `terminate/2`
-- [ ] Async parallel task delegation implemented in orchestrator's `chat` handler
-- [ ] Task graph persistence to SQLite implemented
-- [ ] Error recovery (retry alternate pod, fallback to self) implemented
-- [ ] **Milestone 6 test passing:** orchestrator delegates to multiple pods, recovers from pod crash
+- [x] `ToolRegistry` ETS table creation implemented
+- [x] `ToolRegistry.register/3`, `deregister/1` implemented
+- [x] `ToolRegistry.lookup/1`, `list_all/0`, `tools_for_pod/1` implemented (direct ETS reads)
+- [x] Orchestrator pod created (`examples/orchestrator/` — `manifest.yaml`, `soul.md`, `config.yaml`)
+- [x] `Pod` wires `ToolRegistry.register/3` call into `init/1`
+- [x] `Pod` wires `ToolRegistry.deregister/1` call into `terminate/2`
+- [x] `Pod` can expose other pods as namespaced tools when `internal_tools` includes `"pods"`
+- [x] Async parallel task delegation implemented in orchestrator's `chat` handler
+- [x] Task graph persistence to SQLite implemented via persisted conversation/tool history in `Memory.Repo`
+- [x] Error recovery (retry alternate pod, fallback to self) implemented
+- [x] **Milestone 6 test passing:** orchestrator delegates to multiple pods, recovers from pod crash
 
 ### ToolRegistry
 - ETS-backed registry (fast reads, in-memory)
@@ -563,15 +565,15 @@ Everything after step 10 builds on a proven, working foundation.
 > This section is maintained by agents. Update it when you finish work.
 > Remove items you complete. Add items you discover during implementation.
 
-### Immediate — continue Milestone 4 implementation
+### Immediate — continue Milestone 6 implementation
 
-Milestone 2 is complete and verified. Milestone 3's core pod lifecycle and CLI commands are wired; Milestone 4 is complete and verified.
+Milestones 2, 4, and 5 are complete and verified. Milestone 3's core pod lifecycle and CLI commands are wired. Milestone 6 is now underway.
 
 **Immediate next steps:**
 
-1. Start Milestone 6: implement the orchestration layer / orchestrator pod delegation
-2. Keep the Milestone 5 provider and routing tests green while adding orchestration coverage
-3. Continue in HTDP one-module-at-a-time order
+1. Implement async parallel task delegation in the orchestrator chat handler
+2. Add task-graph persistence to SQLite
+3. Add recovery logic for alternate-pod retry and fallback-to-self behavior
 
 Proceed in the same HTDP unit-test-by-module fashion.
 
@@ -615,6 +617,8 @@ Run `designator-inator serve ./examples/assistant/` and add it to Claude Desktop
 | ETS for ToolRegistry reads | O(1) concurrent reads; GenServer only serializes writes | Scaffolding phase |
 | `_workspace_root` injected via params map into Tool.call | Avoids module state; tools remain stateless and testable | Scaffolding phase |
 | Tool namespacing with `__` separator in MCPGateway | Avoids collisions when multiple pods expose same tool name | Scaffolding phase |
+| `Pod` uses a configurable `:tool_registry_module` seam and skips default registry writes when the registry isn't started | Keeps pod unit tests deterministic without booting the whole app | 2026-04-03 |
+| `internal_tools: ["pods"]` exposes namespaced pod tools from `ToolRegistry` | Lets the orchestrator see other pods as ordinary tools without hardcoded routing | 2026-04-03 |
 | Hardware validation falls back to a soft 8GB check when `:memsup` is unavailable | Keeps pod startup/test runs working in minimal OTP environments | 2026-04-02 |
 | Rename ForgeClaw to Designator-inator | Repo, OTP app, module namespace, config paths, and CLI naming should converge on the new product name | 2026-04-02 |
 

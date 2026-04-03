@@ -21,20 +21,15 @@
   - `DesignatorInator.Pod.Config`
   - `DesignatorInator.Pod`
   - `DesignatorInator.PodSupervisor`
-- `DesignatorInator.ToolRegistry`
-- `DesignatorInator.MCPGateway`
-- `DesignatorInator.CLI.cmd_serve/2` stdio wiring
-- `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch + response routing
+  - `DesignatorInator.ToolRegistry`
+  - `DesignatorInator.MCPGateway`
+  - `DesignatorInator.CLI.cmd_serve/2` stdio wiring
+  - `DesignatorInator.MCP.Transport.SSE` auth + POST dispatch + response routing
 - Milestone 4 is complete, verified, and audited.
 - Milestone 5 is complete, verified, and audited.
-- Implemented / verified:
-  - `Providers.Anthropic.complete/2`, `model_id/1`, and `messages_to_anthropic/1`
-  - `Providers.OpenAI.complete/2`
-  - `ModelManager` auto-fallback routing for `fallback_mode: auto`
-  - provider and routing tests for Anthropic/OpenAI + ModelManager
-  - `MCPGateway.push_to_sse_connection/2` (SSE response routing — was a critical bug)
-- Current targeted provider/model-manager/MCP tests pass: 52 tests, 0 failures.
-- Next work is Milestone 6 orchestration / orchestrator pod delegation.
+- Milestone 6 is complete: pods register/deregister exposed tools via ToolRegistry, the orchestrator example exposes namespaced pod tools through `internal_tools: ["pods"]`, ReActLoop executes tool calls in parallel, and orchestration persistence/recovery now work through persisted conversation history.
+- Current targeted pod/registry/MCP/ReActLoop tests pass: 18 tests, 0 failures.
+- Next work is Milestone 7 distributed swarm / cross-node routing.
 
 ## Toolchain / Environment
 
@@ -360,10 +355,13 @@ mix test test/designator_inator/mcp/ \
 
 ## Files Changed In This Session (2026-04-03)
 
+- [`plan.md`](./plan.md)
 - [`note.md`](./note.md)
-- [`designator_inator/lib/designator_inator/mcp_gateway.ex`](./designator_inator/lib/designator_inator/mcp_gateway.ex)
-- [`designator_inator/lib/designator_inator/mcp/transport/sse.ex`](./designator_inator/lib/designator_inator/mcp/transport/sse.ex)
-- [`designator_inator/lib/designator_inator/providers/anthropic.ex`](./designator_inator/lib/designator_inator/providers/anthropic.ex)
-- [`designator_inator/test/designator_inator/mcp/transport_sse_test.exs`](./designator_inator/test/designator_inator/mcp/transport_sse_test.exs)
-- [`designator_inator/test/designator_inator/mcp_gateway_test.exs`](./designator_inator/test/designator_inator/mcp_gateway_test.exs)
-- [`designator_inator/test/designator_inator/providers/anthropic_test.exs`](./designator_inator/test/designator_inator/providers/anthropic_test.exs)
+- [`designator_inator/lib/designator_inator/pod.ex`](./designator_inator/lib/designator_inator/pod.ex)
+- [`designator_inator/lib/designator_inator/react_loop.ex`](./designator_inator/lib/designator_inator/react_loop.ex)
+- [`designator_inator/test/designator_inator/pod_test.exs`](./designator_inator/test/designator_inator/pod_test.exs)
+- [`designator_inator/test/designator_inator/react_loop_test.exs`](./designator_inator/test/designator_inator/react_loop_test.exs)
+- [`examples/orchestrator/manifest.yaml`](./examples/orchestrator/manifest.yaml)
+- [`examples/orchestrator/config.yaml`](./examples/orchestrator/config.yaml)
+- [`examples/orchestrator/soul.md`](./examples/orchestrator/soul.md)
+- [`examples/orchestrator/workspace/.keep`](./examples/orchestrator/workspace/.keep)

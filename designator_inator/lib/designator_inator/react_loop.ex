@@ -251,10 +251,25 @@ defmodule DesignatorInator.ReActLoop do
           %{state | status: :done, result: text, messages: messages}
         else
           tool_messages =
-            Enum.map(tool_calls, fn call ->
-              call
-              |> tool_executor.()
-              |> tool_result_to_message()
+            tool_calls
+            |> Task.async_stream(
+              fn call -> {call, tool_executor.(call)} end,
+              max_concurrency: max(1, length(tool_calls)),
+              ordered: true,
+              timeout: 120_000
+            )
+            |> Enum.map(fn
+              {:ok, {call, %ToolResult{} = result}} ->
+                tool_result_to_message(result)
+
+              {:ok, {_call, %Message{} = message}} ->
+                message
+
+              {:ok, {call, other}} ->
+                %Message{role: :tool, content: inspect(other), tool_call_id: call.id}
+
+              {:exit, reason} ->
+                %Message{role: :tool, content: "Error: #{inspect(reason)}", tool_call_id: nil}
             end)
 
           %{state | status: :thinking, iterations: state.iterations + 1, messages: messages ++ tool_messages}

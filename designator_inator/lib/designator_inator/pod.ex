@@ -47,11 +47,12 @@ defmodule DesignatorInator.Pod do
   use GenServer
   require Logger
 
-  alias DesignatorInator.Types.{PodState, Message}
-  alias DesignatorInator.{ReActLoop, Memory, ModelManager}
+  alias DesignatorInator.Types.{PodState, Message, ToolResult, ToolCall, ToolDefinition}
+  alias DesignatorInator.{ReActLoop, Memory, ModelManager, ToolRegistry}
   alias DesignatorInator.Pod.{Config}
 
   @workspace_dir_default Path.expand("~/.designator_inator/workspaces")
+  @namespace_separator "__"
 
   # ── Public API ──────────────────────────────────────────────────────────────
 
@@ -226,43 +227,50 @@ defmodule DesignatorInator.Pod do
       send(self(), :load_model)
     end
 
+    register_tools(state)
+
     {:ok, state}
   end
 
   @impl GenServer
   def handle_call({:chat, user_message, session_id}, _from, state) do
     session_id = session_id || Memory.new_session_id()
-    system_message = %Message{role: :system, content: state.soul}
-    history = Memory.load_history(state.name, session_id, state.config.max_history || 20)
+    running_state = %{state | status: :running, current_task_id: session_id}
+
+    persist_message(running_state.name, session_id, %Message{role: :user, content: user_message})
+
+    system_message = %Message{role: :system, content: running_state.soul}
+    history = Memory.load_history(running_state.name, session_id, running_state.config.max_history || 20)
     messages = [system_message | history] ++ [%Message{role: :user, content: user_message}]
 
     tool_executor = fn call ->
-      call.arguments
-      |> Map.put("_workspace_root", state.workspace)
-      |> Map.put("_pod_name", state.name)
-      |> execute_internal_tool(call.name)
+      result = execute_tool_call(call, running_state)
+      persist_message(running_state.name, session_id, ReActLoop.tool_result_to_message(result))
+      result
     end
 
     inference_fn = fn msgs, opts ->
-      model_opts = [model: state.model, temperature: state.config.temperature, max_tokens: state.config.max_tokens]
+      model_opts = [model: running_state.model, temperature: running_state.config.temperature, max_tokens: running_state.config.max_tokens]
       model_opts = Keyword.merge(model_opts, opts)
       ModelManager.complete(msgs, model_opts)
     end
 
     result =
-      ReActLoop.run(messages, internal_tools(state.manifest), tool_executor, inference_fn,
-        pod_name: state.name,
+      ReActLoop.run(messages, available_tools(running_state), tool_executor, inference_fn,
+        pod_name: running_state.name,
         session_id: session_id,
-        tool_call_format: state.config.tool_call_format,
+        tool_call_format: running_state.config.tool_call_format,
         max_iterations: 20
       )
 
     case result do
       {:ok, answer} ->
-        {:reply, {:ok, answer, session_id}, state}
+        persist_message(running_state.name, session_id, %Message{role: :assistant, content: answer})
+        {:reply, {:ok, answer, session_id}, %{running_state | status: :idle, current_task_id: nil}}
 
       {:error, reason} ->
-        {:reply, {:error, reason}, state}
+        persist_message(running_state.name, session_id, %Message{role: :assistant, content: "Error: #{inspect(reason)}"})
+        {:reply, {:error, reason}, %{running_state | status: :idle, current_task_id: nil}}
     end
   end
 
@@ -318,23 +326,142 @@ defmodule DesignatorInator.Pod do
     end
   end
 
-  defp internal_tools(%{internal_tools: internal_tool_names}) do
-    Enum.flat_map(internal_tool_names, fn
-      "workspace" -> [DesignatorInator.Tools.Workspace]
+  @impl GenServer
+  def terminate(_reason, state) do
+    deregister_tools(state)
+    :ok
+  end
+
+  defp available_tools(%PodState{} = state) do
+    state.manifest.internal_tools
+    |> Enum.flat_map(fn
+      "workspace" -> [DesignatorInator.Tool.to_definition(DesignatorInator.Tools.Workspace)]
+      "pods" -> pod_tools(state.name)
       _ -> []
     end)
-    |> Enum.map(&DesignatorInator.Tool.to_definition/1)
+  end
+
+  defp pod_tools(current_pod_name) do
+    tool_registry_module().list_all()
+    |> Enum.reject(fn {pod_name, _pid, _definition} -> pod_name == current_pod_name end)
+    |> Enum.map(fn {pod_name, _pid, %ToolDefinition{} = definition} ->
+      %ToolDefinition{definition | name: namespace_tool_name(pod_name, definition.name)}
+    end)
+  end
+
+  defp execute_tool_call(%ToolCall{name: tool_name, arguments: params, id: call_id}, state) do
+    case String.split(tool_name, @namespace_separator, parts: 2) do
+      [pod_name, nested_tool_name] ->
+        call_external_tool(call_id, pod_name, nested_tool_name, params, state)
+
+      [_single] ->
+        call_internal_tool(call_id, tool_name, params, state)
+    end
+  end
+
+  defp call_internal_tool(call_id, "workspace", params, state) do
+    params =
+      params
+      |> Map.put("_workspace_root", state.workspace)
+      |> Map.put("_pod_name", state.name)
+
+    case DesignatorInator.Tools.Workspace.call(params) do
+      {:ok, content} -> %ToolResult{tool_call_id: call_id, content: content, is_error: false}
+      {:error, error} -> %ToolResult{tool_call_id: call_id, content: error, is_error: true}
+    end
+  end
+
+  defp call_internal_tool(call_id, tool_name, _params, _state) do
+    %ToolResult{tool_call_id: call_id, content: "Unsupported internal tool: #{tool_name}", is_error: true}
+  end
+
+  defp call_external_tool(call_id, pod_name, tool_name, params, state) do
+    case DesignatorInator.Pod.call_tool(pod_name, tool_name, params) do
+      {:ok, content} ->
+        %ToolResult{tool_call_id: call_id, content: content, is_error: false}
+
+      {:error, error} ->
+        case alternate_pod_for(tool_name, pod_name) do
+          nil ->
+            maybe_fallback_to_self(call_id, tool_name, params, state, error)
+
+          alternate_pod ->
+            case DesignatorInator.Pod.call_tool(alternate_pod, tool_name, params) do
+              {:ok, content} ->
+                %ToolResult{tool_call_id: call_id, content: content, is_error: false}
+
+              {:error, alternate_error} ->
+                maybe_fallback_to_self(call_id, tool_name, params, state, alternate_error)
+            end
+        end
+    end
+  end
+
+  defp register_tools(%PodState{name: name, manifest: %{exposed_tools: tools}}) do
+    registry = tool_registry_module()
+
+    if registry_ready?(registry) do
+      registry.register(name, self(), tools)
+    else
+      :ok
+    end
+  end
+
+  defp deregister_tools(%PodState{name: name}) do
+    registry = tool_registry_module()
+
+    if registry_ready?(registry) do
+      registry.deregister(name)
+    else
+      :ok
+    end
+  end
+
+  defp registry_ready?(DesignatorInator.ToolRegistry) do
+    Process.whereis(DesignatorInator.ToolRegistry) != nil
+  end
+
+  defp registry_ready?(_module), do: true
+
+  defp tool_registry_module do
+    Application.get_env(:designator_inator, :tool_registry_module, ToolRegistry)
+  end
+
+  defp namespace_tool_name(pod_name, tool_name), do: "#{pod_name}#{@namespace_separator}#{tool_name}"
+
+  defp format_error(error) when is_binary(error), do: error
+  defp format_error(error), do: inspect(error)
+
+  defp alternate_pod_for(tool_name, excluded_pod) do
+    tool_registry_module().lookup(tool_name)
+    |> Enum.reject(fn {pod_name, _pid, _definition} -> pod_name == excluded_pod end)
+    |> case do
+      [] -> nil
+      [{pod_name, _pid, _definition} | _] -> pod_name
+    end
+  end
+
+  defp maybe_fallback_to_self(call_id, tool_name, params, state, error) do
+    if tool_name in exposed_tool_names(state.manifest) or tool_name in available_tool_names(state) do
+      call_internal_tool(call_id, tool_name, params, state)
+    else
+      %ToolResult{tool_call_id: call_id, content: format_error(error), is_error: true}
+    end
+  end
+
+  defp available_tool_names(%PodState{} = state) do
+    available_tools(state)
+    |> Enum.map(& &1.name)
+  end
+
+  defp persist_message(pod_name, session_id, %Message{} = message) do
+    _ = Memory.save_message(pod_name, session_id, message)
+    :ok
   end
 
   defp exposed_tool_names(%{exposed_tools: tools}) do
     Enum.map(tools, & &1.name)
   end
-
-  defp execute_internal_tool("workspace", params) do
-    DesignatorInator.Tools.Workspace.call(params)
-  end
-
-  defp execute_internal_tool(_name, _params), do: {:error, "Unsupported internal tool"}
 
   defp read_soul(path) do
     case File.read(path) do
