@@ -293,9 +293,8 @@ defmodule DesignatorInator.ModelInventory do
     # 3. Return {:reply, {:ok, count}, new_state}
   end
 
-  defp build_gguf_paths(dir, filenames) do
-    Enum.filter(filenames, &String.ends_with?(&1, ".gguf"))
-    |> Enum.map(&Path.join(dir, &1))
+  defp build_gguf_paths(dir, _filenames) do
+    Path.wildcard(Path.join([dir, "**", "*.gguf"]))
   end
 
   defp parse_model_file(path) do
