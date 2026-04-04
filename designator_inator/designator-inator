@@ -9,6 +9,8 @@
 # For a self-contained production binary, build with: mix release
 
 set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the real path of this script, following symlinks
+REAL_SCRIPT="$(realpath "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$REAL_SCRIPT")"
 cd "$SCRIPT_DIR"
 exec mix run -e 'DesignatorInator.CLI.main(System.argv())' -- "$@"
