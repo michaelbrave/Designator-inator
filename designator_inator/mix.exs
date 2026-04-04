@@ -9,8 +9,7 @@ defmodule DesignatorInator.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps(),
-      escript: escript()
+      deps: deps()
     ]
   end
 
@@ -58,15 +57,6 @@ defmodule DesignatorInator.MixProject do
 
       # Test mocking
       {:mox, "~> 1.1", only: :test}
-    ]
-  end
-
-  # The `designator-inator` CLI binary
-  defp escript do
-    [
-      main_module: DesignatorInator.CLI,
-      name: "designator-inator",
-      comment: "Designator-inator agent orchestration CLI"
     ]
   end
 

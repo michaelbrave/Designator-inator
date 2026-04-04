@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# designator-inator — Designator-inator agent orchestration CLI
+#
+# Wrapper script that invokes the CLI via Mix.
+# Using Mix (rather than a compiled escript) is required because the SQLite
+# dependency (exqlite) uses a NIF (.so library) that cannot be embedded in
+# an escript archive.
+#
+# For a self-contained production binary, build with: mix release
+
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+exec mix run -e 'DesignatorInator.CLI.main(System.argv())' -- "$@"
