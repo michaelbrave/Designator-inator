@@ -46,7 +46,7 @@ defmodule DesignatorInator.Providers.LlamaCpp do
   alias DesignatorInator.Types.Message
 
   @health_check_interval_ms 500
-  @health_check_max_attempts 20
+  @health_check_max_attempts 360   # 3 minutes — large models need time to load + warm up
   @shutdown_grace_ms 5_000
 
   # ── Public API ──────────────────────────────────────────────────────────────
@@ -177,7 +177,10 @@ defmodule DesignatorInator.Providers.LlamaCpp do
   def init(opts) do
     model = Keyword.fetch!(opts, :model)
     port_number = Keyword.fetch!(opts, :port)
-    context_size = Keyword.get(opts, :context_size, model.context_length)
+    # Default to 16384 when the model file reports 0 (unknown) — avoids llama-server
+    # using its own default (often 262144) which allocates enormous KV caches.
+    default_ctx = Application.get_env(:designator_inator, :default_context_size, 16_384)
+    context_size = Keyword.get(opts, :context_size, max(model.context_length, default_ctx))
     gpu_layers = Keyword.get(opts, :gpu_layers, 99)
     threads = Keyword.get(opts, :threads, System.schedulers_online())
     executable = Keyword.get(opts, :bin, llama_server_bin())
@@ -226,6 +229,12 @@ defmodule DesignatorInator.Providers.LlamaCpp do
     # If state.status == :ready: reply immediately with {:ok, state.port_number}
     # Else: add `from` to a list of waiters in state
     # When health check succeeds (handle_info :health_check), reply to all waiters
+  end
+
+  @impl GenServer
+  def terminate(_reason, state) do
+    kill_os_process(state.os_pid, "-TERM")
+    :ok
   end
 
   @impl GenServer

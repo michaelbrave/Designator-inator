@@ -27,6 +27,15 @@ config :designator_inator, :llama_server_bin, System.find_executable("llama-serv
 # Default inference timeout in milliseconds
 config :designator_inator, :inference_timeout_ms, 120_000
 
+# How long to wait for llama-server to become healthy after starting (ms).
+# Large models need several minutes to load tensors and run the warm-up pass.
+config :designator_inator, :llama_ready_timeout_ms, 210_000   # 3.5 min
+
+# Default context window when the model file reports 0 (unknown).
+# Prevents llama-server from using its own default (often 256k) which
+# allocates enormous KV caches. Override per-pod in config.yaml.
+config :designator_inator, :default_context_size, 16_384
+
 # ── MCP gateway ───────────────────────────────────────────────────────────────
 config :designator_inator, :mcp_http_port, 4000
 
