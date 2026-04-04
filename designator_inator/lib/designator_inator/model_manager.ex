@@ -26,11 +26,12 @@ defmodule DesignatorInator.ModelManager do
 
   ## Provider routing rules
 
-  | Model name prefix | Provider module                  |
-  |-------------------|----------------------------------|
-  | `"claude-*"`      | `DesignatorInator.Providers.Anthropic`  |
-  | `"gpt-*"`         | `DesignatorInator.Providers.OpenAI`     |
-  | anything else     | `DesignatorInator.Providers.LlamaCpp`   |
+  | Model name prefix    | Provider module                         |
+  |----------------------|-----------------------------------------|
+  | `"claude-*"`         | `DesignatorInator.Providers.Anthropic`  |
+  | `"gpt-*"`            | `DesignatorInator.Providers.OpenAI`     |
+  | `"openrouter/*"`     | `DesignatorInator.Providers.OpenRouter` |
+  | anything else        | `DesignatorInator.Providers.LlamaCpp`   |
 
   ## Concurrency model
 
@@ -186,6 +187,7 @@ defmodule DesignatorInator.ModelManager do
   @spec provider_for(String.t()) :: module()
   def provider_for("claude-" <> _), do: DesignatorInator.Providers.Anthropic
   def provider_for("gpt-" <> _), do: DesignatorInator.Providers.OpenAI
+  def provider_for("openrouter/" <> _), do: DesignatorInator.Providers.OpenRouter
   def provider_for(_), do: DesignatorInator.Providers.LlamaCpp
 
   @doc false
@@ -535,6 +537,7 @@ defmodule DesignatorInator.ModelManager do
   defp provider_module(DesignatorInator.Providers.LlamaCpp), do: llama_provider()
   defp provider_module(DesignatorInator.Providers.OpenAI), do: openai_provider()
   defp provider_module(DesignatorInator.Providers.Anthropic), do: anthropic_provider()
+  defp provider_module(DesignatorInator.Providers.OpenRouter), do: openrouter_provider()
 
   defp llama_provider do
     Application.get_env(:designator_inator, :model_manager_llama_provider, DesignatorInator.Providers.LlamaCpp)
@@ -546,5 +549,9 @@ defmodule DesignatorInator.ModelManager do
 
   defp anthropic_provider do
     Application.get_env(:designator_inator, :model_manager_anthropic_provider, DesignatorInator.Providers.Anthropic)
+  end
+
+  defp openrouter_provider do
+    Application.get_env(:designator_inator, :model_manager_openrouter_provider, DesignatorInator.Providers.OpenRouter)
   end
 end
