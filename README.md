@@ -6,6 +6,96 @@ when needed, and scales to a distributed swarm over Erlang distribution.
 
 ---
 
+## The idea
+
+Most AI tooling assumes your work happens in the cloud. You send your code,
+documents, and conversations to a remote API, get a response back, and trust
+that your data is handled responsibly. That works for many cases — but not all.
+
+Designator-inator is built around a different assumption: **the AI runs where
+your data already lives.** A local model on your workstation or home lab reads
+your files directly, remembers your conversations in a local database, and
+never phones home unless you explicitly configure a cloud fallback.
+
+The second idea is that **agents should be composable**. Rather than one
+monolithic assistant that tries to do everything, you build a collection of
+specialist pods — a code reviewer, a note-taker, a researcher — each with its
+own persona, model, and workspace. An orchestrator pod can delegate tasks
+across them. Claude Desktop or Cursor can call all of them through a single
+MCP interface, as if they were tools.
+
+The third idea is **the protocol is the interface**. MCP (Model Context
+Protocol) is used at every layer: between your IDE and Designator-inator,
+between the orchestrator and its sub-agents, and between nodes in a
+distributed swarm. This means any MCP-capable client — Claude Desktop, Cursor,
+your own scripts — can talk to any pod without extra glue code.
+
+---
+
+## What you can build with it
+
+### A private research assistant
+
+Point a pod at your documents folder. Ask it to summarise meeting notes, find
+contradictions across reports, or draft a response based on prior emails. No
+document ever leaves your machine. Works completely offline.
+
+```
+designator-inator run ./pods/researcher/
+You: Summarise everything in workspace/meeting-notes/ from the last two weeks
+```
+
+### Specialist agents behind a single MCP interface
+
+Run a `code-reviewer` pod and a `documentation-writer` pod. Connect Claude
+Desktop to Designator-inator's `serve` command. Both pods appear as tools in
+Claude's interface — you can ask Claude to review a file with one and then
+write its docs with the other, all in one conversation.
+
+```json
+{
+  "mcpServers": {
+    "dev-agents": {
+      "command": "designator-inator",
+      "args": ["serve", "./pods/orchestrator/"]
+    }
+  }
+}
+```
+
+### A home lab swarm
+
+You have a desktop with a 3090 and a Raspberry Pi 5 sitting idle. Run
+Designator-inator on both. Connect them:
+
+```bash
+designator-inator connect 192.168.1.50
+```
+
+The orchestrator now sees pods on both machines. It routes tasks to whichever
+node has the right model already loaded, avoiding reload latency. If the Pi
+goes down, the swarm keeps working. Erlang distribution handles the
+fault-tolerance automatically.
+
+### An air-gapped coding environment
+
+Some environments cannot reach the internet. Drop a GGUF model and a
+Designator-inator pod onto a machine with no outbound access. Set
+`fallback_mode: disabled` in the pod config. The agent runs entirely
+offline — useful for secure development environments, regulated industries, or
+simply not wanting inference costs.
+
+### An orchestrator that delegates complex tasks
+
+Give the orchestrator pod a high-capability model and a `soul.md` that
+describes how to decompose work. When you ask it something multi-step, it
+breaks the task down and dispatches subtasks to specialist pods in parallel —
+one researches, one writes, one reviews — then synthesises the results. The
+orchestrator's strategy lives in `soul.md`, not in code, so you can change it
+without touching the application.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
